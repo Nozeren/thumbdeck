@@ -102,8 +102,8 @@ async fn edit_actions(
 }
 
 #[tauri::command]
-fn run_action(app: AppHandle, runs: State<'_, runner::Runs>, path: String, command: String) -> Result<u64, String> {
-    runner::start(app, &runs, &path, &command)
+fn run_action(app: AppHandle, runs: State<'_, runner::Runs>, path: String, command: String, label: String) -> Result<u64, String> {
+    runner::start(app, &runs, &path, &command, &label)
 }
 
 #[tauri::command]

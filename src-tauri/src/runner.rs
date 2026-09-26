@@ -8,7 +8,8 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 #[derive(Default)]
 pub struct Runs {
@@ -59,7 +60,25 @@ pub fn preload_env() {
     });
 }
 
-pub fn start(app: AppHandle, runs: &Runs, dir: &str, command: &str) -> Result<u64, String> {
+/// A command finished: tell the system, unless you're looking at thumbdeck anyway.
+fn notify_finished(app: &AppHandle, label: &str, project: &str, code: Option<i32>, secs: u64) {
+    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    eprintln!("thumbdeck: '{label}' finished (code {code:?}, {secs}s), window focused: {focused}");
+    if focused {
+        return;
+    }
+    let took = if secs < 60 { format!("{secs}s") } else { format!("{}m {}s", secs / 60, secs % 60) };
+    let (title, body) = match code {
+        Some(0) => (format!("✓ {label} finished"), format!("in {took} · {project}")),
+        Some(c) => (format!("✗ {label} failed (exit {c})"), format!("after {took} · {project}")),
+        None => (format!("■ {label} stopped"), format!("after {took} · {project}")),
+    };
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("thumbdeck: notification failed: {e}");
+    }
+}
+
+pub fn start(app: AppHandle, runs: &Runs, dir: &str, command: &str, label: &str) -> Result<u64, String> {
     let mut child = Command::new("/bin/sh")
         .args(["-c", command])
         .current_dir(dir)
@@ -91,8 +110,12 @@ pub fn start(app: AppHandle, runs: &Runs, dir: &str, command: &str) -> Result<u6
     }
 
     let running = Arc::clone(&runs.running);
+    let label = label.to_string();
+    let project = std::path::Path::new(dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let started = std::time::Instant::now();
     std::thread::spawn(move || {
         let code = child.wait().ok().and_then(|s| s.code());
+        notify_finished(&app, &label, &project, code, started.elapsed().as_secs());
         for h in handles {
             let _ = h.join();
         }
