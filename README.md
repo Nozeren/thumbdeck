@@ -14,6 +14,16 @@ Linux and macOS.
 Commands run with your login shell's environment, so tools from Homebrew, fnm or
 `~/.local/bin` are found even when the app is started from a launcher or the Dock.
 
+## Install
+
+```sh
+./install.sh
+```
+
+Builds a release version and installs it for your user, no sudo: on Linux to `~/.local/bin`
+with a launcher entry and icon (so it shows up in wofi / rofi / your app menu), on macOS to
+`~/Applications/thumbdeck.app`. Run it again after pulling changes to update.
+
 ## Develop
 
 Needs Node, Rust (`rustup default stable`) and, on Linux, WebKitGTK (`webkit2gtk-4.1`);
