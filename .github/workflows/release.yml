@@ -1,6 +1,7 @@
 # A tag like v0.2.0 (made by scripts/release.sh) builds thumbdeck for Linux and macOS, signs the
 # builds with the updater key, and publishes them to the public Nozeren/thumbdeck-releases repo,
-# with the latest.json installed apps check for updates.
+# with the latest.json installed apps check for updates, and install.sh (which installs the
+# latest release: curl -fsSL .../releases/latest/download/install.sh | bash).
 #
 # Secrets:
 #   RELEASES_TOKEN              fine-grained token: Contents read on thumbdeck and
@@ -28,7 +29,7 @@ jobs:
             platform: darwin-universal
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           token: ${{ secrets.RELEASES_TOKEN }} # the toolkits submodule is private
@@ -41,7 +42,7 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -66,8 +67,12 @@ jobs:
         if: matrix.platform == 'linux-x86_64'
         run: |
           npm run tauri build -- --no-bundle
-          mkdir -p out
-          tar -czf out/thumbdeck-linux-x86_64.tar.gz -C src-tauri/target/release thumbdeck
+          # The binary, and the icons install.sh puts in the launcher (the updater takes the binary)
+          mkdir -p out stage
+          cp src-tauri/target/release/thumbdeck stage/
+          cp assets/icon.svg stage/thumbdeck.svg
+          cp src-tauri/icons/128x128.png stage/thumbdeck.png
+          tar -czf out/thumbdeck-linux-x86_64.tar.gz -C stage thumbdeck thumbdeck.svg thumbdeck.png
 
       - name: Build (macOS)
         if: matrix.platform == 'darwin-universal'
@@ -82,7 +87,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npx tauri signer sign --app-version "$VERSION" out/thumbdeck-${{ matrix.platform }}.tar.gz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
           path: out/
@@ -91,11 +96,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the commits since the last release are its notes
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true
@@ -114,4 +119,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" -R Nozeren/thumbdeck-releases \
             --title "thumbdeck ${GITHUB_REF_NAME#v}" --notes-file notes.md \
-            out/*.tar.gz out/*.sig out/latest.json
+            out/*.tar.gz out/*.sig out/latest.json install.sh
