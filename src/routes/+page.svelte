@@ -20,12 +20,93 @@
   function closeMenuOutside(e: MouseEvent) {
     if (addMenu && addMenuEl && !addMenuEl.contains(e.target as Node)) addMenu = false;
   }
-  function closeMenuOnEsc(e: KeyboardEvent) {
+  // ------------------------------------------------------------ keyboard
+  let hints = $state(false); // Space pressed: Toolkit buttons show their letters
+  let helpOpen = $state(false);
+  let pendingG = false; // first g of gg
+  let filterEl = $state<HTMLInputElement | null>(null);
+  const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
+
+  // Projects in the order the tree shows them (a pinned project counts once, where it's pinned)
+  const navOrder = $derived.by(() => {
+    const seen = new Set<string>();
+    const out: Project[] = [];
+    for (const sec of sections) {
+      if (sec.id === "hidden") continue;
+      for (const p of sec.items) if (!seen.has(p.path)) (seen.add(p.path), out.push(p));
+    }
+    return out;
+  });
+
+  function move(delta: number | "first" | "last") {
+    if (!navOrder.length) return;
+    const i = navOrder.findIndex((p) => p.path === selected?.path);
+    const next =
+      delta === "first" ? 0 : delta === "last" ? navOrder.length - 1
+      : Math.min(navOrder.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta));
+    const p = navOrder[next];
+    collapsed = collapsed.filter((id) => id !== sectionOf(p)); // unfold its section
+    select(p);
+  }
+
+  function cycleRuns(delta: number) {
+    const list = projectRuns.toReversed(); // oldest first
+    if (!list.length) return;
+    const i = list.findIndex((r) => r.id === shownRun);
+    shownRun = list[(i < 0 ? list.length - 1 : i + delta + list.length) % list.length].id;
+  }
+
+  function onKey(e: KeyboardEvent) {
+    const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
     if (e.key === "Escape") {
       addMenu = false;
       form = null;
+      hints = false;
+      helpOpen = false;
+      if (typing) (e.target as HTMLElement).blur();
+      return;
+    }
+    if (typing || form || e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (hints) {
+      e.preventDefault();
+      hints = false;
+      const i = HINT_KEYS.indexOf(e.key);
+      const a = details?.actions[i];
+      if (i >= 0 && a) run(a);
+      return;
+    }
+    const wasG = pendingG;
+    pendingG = false;
+    switch (e.key) {
+      case " ": hints = (details?.actions.length ?? 0) > 0; break;
+      case "j": move(1); break;
+      case "k": move(-1); break;
+      case "g": if (wasG) move("first"); else pendingG = true; break;
+      case "G": move("last"); break;
+      case "/": filterEl?.focus(); break;
+      case "p": if (selected) edit("pin", selected.path); break;
+      case "x": if (selected) edit("remove", selected.path); break;
+      case "a": if (selected) openForm(); break;
+      case "s": if (current && current.endedAt === null) stop(current); break;
+      case "o": shownRun = shownRun === null ? (projectRuns[0]?.id ?? null) : null; break;
+      case "[": cycleRuns(-1); break;
+      case "]": cycleRuns(1); break;
+      case "?": helpOpen = !helpOpen; break;
+      default: return;
+    }
+    e.preventDefault();
+  }
+
+  // Enter in the filter opens the first match
+  function filterKey(e: KeyboardEvent) {
+    if (e.key === "Enter" && navOrder.length) {
+      select(navOrder[0]);
+      filter = "";
+      (e.target as HTMLElement).blur();
     }
   }
+
   let filter = $state("");
   let selected = $state<Project | null>(null);
   let details = $state<Details | null>(null);
@@ -184,13 +265,13 @@
   });
 </script>
 
-<svelte:window onclick={closeMenuOutside} onkeydown={closeMenuOnEsc} />
+<svelte:window onclick={closeMenuOutside} onkeydown={onKey} />
 <div class="drag" data-tauri-drag-region></div>
 <main class:mac>
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
     <header class="app" data-tauri-drag-region>thumbdeck</header>
-    <input class="filter" placeholder="Filter projects…" bind:value={filter} />
+    <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey} />
     <section class="card helm">
       <h2>
         <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
@@ -305,9 +386,15 @@
         <h3>{source === "custom" ? "yours" : source}</h3>
         <div class="grid">
           {#each actions as a (a.id)}
+            {@const hint = HINT_KEYS[details?.actions.indexOf(a) ?? -1]}
             <div class="action-wrap">
               <button class="action" class:custom={a.source === "custom"} title={a.command} onclick={() => run(a)}>
-                <span class="play">{a.confirm ? "!" : "▷"}</span><span class="alabel">{a.label}</span>
+                {#if hints && hint}
+                  <span class="hint-key">{hint}</span>
+                {:else}
+                  <span class="play">{a.confirm ? "!" : "▷"}</span>
+                {/if}
+                <span class="alabel">{a.label}</span>
               </button>
               <span class="action-tools">
                 {#if a.source === "custom"}
@@ -339,6 +426,27 @@
     </section>
   </aside>
 </main>
+
+{#if helpOpen}
+  <div class="backdrop" role="presentation" onclick={() => (helpOpen = false)}>
+    <div class="dialog help">
+      <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
+      <dl>
+        <dt>j / k</dt><dd>next / previous project</dd>
+        <dt>gg / G</dt><dd>first / last project</dd>
+        <dt>/</dt><dd>filter projects (Enter opens the first match)</dd>
+        <dt>p</dt><dd>pin / unpin project</dd>
+        <dt>x</dt><dd>hide project</dd>
+        <dt>Space, letter</dt><dd>run a Toolkit button</dd>
+        <dt>a</dt><dd>add your own action</dd>
+        <dt>s</dt><dd>stop the command shown</dd>
+        <dt>o</dt><dd>README ↔ output</dd>
+        <dt>[ / ]</dt><dd>previous / next run's output</dd>
+        <dt>Esc</dt><dd>close menus, forms, this help; leave the filter</dd>
+      </dl>
+    </div>
+  </div>
+{/if}
 
 {#if form && selected}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (form = null)}>
@@ -471,6 +579,11 @@
   .hidden-actions { margin-top: 12px; }
   .hidden-list { list-style: none; margin: 0; padding: 0 0 0 10px; font: 12px var(--mono); }
   .avatar.custom { background: var(--yellow); }
+  .hint-key { min-width: 16px; padding: 0 4px; border-radius: 4px; text-align: center; background: var(--orange); color: var(--bg0); font-weight: 700; }
+  .hint-note { font: 400 11px var(--mono); color: var(--orange); }
+  .help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+  .help dt { font-family: var(--mono); color: var(--orange); }
+  .help dd { margin: 0; color: var(--fg); }
 
   .backdrop { position: fixed; inset: 0; z-index: 50; background: #0009; display: grid; place-items: center; }
   .dialog { width: min(520px, 90vw); background: var(--bg0); border: 1px solid var(--bg3); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px #000a; }
