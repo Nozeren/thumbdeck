@@ -24,7 +24,7 @@
   const visible = $derived(
     projects.filter((p) => !p.hidden && p.name.toLowerCase().includes(filter.toLowerCase())),
   );
-  // The Helm tree: Pinned, one section per scan folder, Added, Hidden
+  // The project tree: Pinned, one section per scan folder, Added, Hidden
   const sections = $derived.by(() => {
     const match = (p: Project) => p.name.toLowerCase().includes(filter.toLowerCase());
     const shown = projects.filter((p) => !p.hidden && match(p));
@@ -159,7 +159,7 @@
     <input class="filter" placeholder="Filter projects…" bind:value={filter} />
     <section class="card helm">
       <h2>
-        <span class="dot purple"></span>Helm <span class="count">{visible.length}</span>
+        <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
         <span class="menu-anchor">
           <button class="icon" title="Add…" onclick={() => (addMenu = !addMenu)}>+</button>
           {#if addMenu}
