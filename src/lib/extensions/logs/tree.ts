@@ -64,7 +64,7 @@ export function findLine(lines: Line[], from: number, direction: 1 | -1, hidden:
   return null;
 }
 
-/** "HH:MM:SS │ LEVEL   │ message" (as qa-log-tui shows a line) */
+/** "HH:MM:SS │ LEVEL   │ message" (how the viewer shows a line) */
 export function formatLine(l: Line): string {
   const time = /\d{2}:\d{2}:\d{2}/.exec(l.time)?.[0] ?? l.time;
   const parts = [];

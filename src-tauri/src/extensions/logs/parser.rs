@@ -1,6 +1,6 @@
 //! Reading a log into entries (JSON lines or plain text, from any tool), and finding its
-//! sections. The section rules are qa-log-tui's (from qa-tracker's BookmarkBuilder /
-//! IndexBuilder): every line whose message contains a start text opens a section, which ends
+//! sections. Sections follow start and end markers: every line whose message contains a
+//! start text opens a section, which ends
 //! at the first later line whose message contains an end text (that line included), or runs
 //! to the end of the file.
 
@@ -272,7 +272,7 @@ pub mod tests {
     use super::*;
     use crate::extensions::logs::tests::sections;
 
-    /// qa-log-tui's sample run: JSON lines, two test scenarios
+    /// A sample test run: JSON lines, two test scenarios
     pub const SAMPLE: &str = include_str!("testdata/sample_run.log");
 
     pub fn sections_setup() -> Setup {

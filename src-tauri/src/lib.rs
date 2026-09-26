@@ -257,6 +257,27 @@ async fn agents_transcript(file: String) -> Result<Vec<agents::transcript::Entry
     agents::transcript::read(Path::new(&file))
 }
 
+// ------------------------------------------------------------ pull requests extension
+
+use extensions::prs;
+
+#[tauri::command]
+async fn prs_list(path: String, setup: prs::Setup) -> Result<prs::PrList, String> {
+    let repo = prs::repo(Path::new(&path), &setup)?;
+    prs::fetch(&repo, &setup)
+}
+
+/// Open a PR in the browser, marking its notification read
+#[tauri::command]
+async fn prs_open(app: AppHandle, url: String, notification: Option<String>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
+    if let Some(thread) = notification {
+        prs::mark_read(&thread)?;
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------ updates
 
 fn version(app: &AppHandle) -> String {
@@ -310,7 +331,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start])
+            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             Ok(())

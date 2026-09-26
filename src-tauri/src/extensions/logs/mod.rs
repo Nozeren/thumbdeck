@@ -1,4 +1,4 @@
-//! Logs: a log viewer tab for any project (its idea and section rules come from qa-log-tui).
+//! Logs: a log viewer tab for any project.
 //! Log files (JSON lines or plain text) with levels, search and live tail, optionally folded
 //! into sections that start and end at marker texts.
 
@@ -134,8 +134,8 @@ impl Setup {
 pub mod tests {
     use super::*;
 
-    /// Sections for qa-log-tui's sample test run (testdata/sample_run.log): its
-    /// DEFAULT_CONFIG, which checks that the section rules work like qa-log-tui's
+    /// Sections for the sample test run (testdata/sample_run.log): its
+    /// DEFAULT_CONFIG, which checks that the section rules work as intended
     pub fn sections() -> Vec<BlockConfig> {
         let block = |name: &str, kind, start: &[&str], end: &[&str], alias| BlockConfig {
             name: name.into(),

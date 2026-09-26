@@ -42,7 +42,8 @@ from real files first.
   screenshot with `alterzorder top` then `grim -g`, and `alterzorder bottom` after.
 - Never send Enter unless a button has keyboard focus: Enter opens the project in the user's
   real tmux. Space + letter runs Toolkit buttons; number keys switch tabs.
-- An unstyled page in dev is vite's stuck CSS cache: `touch src/routes/+page.svelte`.
+- An unstyled page in dev is vite's stuck CSS cache (it serves the raw .svelte source as the
+  CSS): `touch src/routes/+page.svelte`, and if that doesn't help, restart `npm run tauri dev`.
 - Keep screenshots and command output few and small; they fill the context fast.
 
 ## Shell pitfalls (zsh)

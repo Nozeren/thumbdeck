@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Logs tab (its idea and keys come from qa-log-tui): the project's log files, then one log
+  // The Logs tab: the project's log files, then one log
   // with levels, search, error jumps, live tail, optional sections and a detail view of one
   // entry. Keys come through handleKey() while the tab has the keyboard.
   import { invoke } from "@tauri-apps/api/core";

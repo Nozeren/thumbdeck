@@ -1,5 +1,5 @@
 //! Lines and blocks as a tree: bookmarks hold the indices inside them, and every line
-//! appears exactly once, in its innermost block (qa-log-tui's build_outline).
+//! appears exactly once, in its innermost block.
 
 use super::parser::{Block, Line};
 use super::Kind;
