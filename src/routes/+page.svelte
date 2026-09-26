@@ -13,6 +13,8 @@
   let shownRun = $state<number | null>(null); // run whose output is in the center; null = README
   let now = $state(Date.now());
   let outputEl = $state<HTMLElement | null>(null);
+  // macOS shows its window buttons over the top-left of the app (overlay title bar)
+  const mac = navigator.userAgent.includes("Mac");
 
   const visible = $derived(
     projects.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase())),
@@ -87,10 +89,11 @@
   });
 </script>
 
-<main>
+<div class="drag" data-tauri-drag-region></div>
+<main class:mac>
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
-    <header class="app">thumbdeck</header>
+    <header class="app" data-tauri-drag-region>thumbdeck</header>
     <input class="filter" placeholder="Filter projects…" bind:value={filter} />
     <section class="card helm">
       <h2><span class="dot purple"></span>Projects <span class="count">{projects.length}</span></h2>
@@ -192,6 +195,9 @@
   :global(*) { box-sizing: border-box; }
   button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 
+  /* invisible strip along the top to move the window by (macOS has no title bar here) */
+  .drag { position: fixed; inset: 0 0 auto 0; height: 8px; z-index: 10; }
+  main.mac .app { padding-top: 26px; }
   main { display: grid; grid-template-columns: 250px 1fr 340px; gap: 8px; height: 100vh; padding: 8px; }
   .panel { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .card { background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; padding: 12px; }
