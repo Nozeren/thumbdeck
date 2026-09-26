@@ -28,6 +28,17 @@ fn bundle_packs() {
         code += &format!("    ({id:?}, include_str!({:?})),\n", path.display().to_string());
     }
     code += "];\n";
+    // When the bundled packs were committed: a clone of the repo older than that is ignored
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").arg("-C").arg(&dir).args(args).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    let time = git(&["log", "-1", "--format=%ct"]).and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
+    // Checking out another commit of the submodule changes its HEAD
+    if let Some(git_dir) = git(&["rev-parse", "--absolute-git-dir"]) {
+        println!("cargo:rerun-if-changed={git_dir}/HEAD");
+    }
+    code += &format!("pub const BUNDLED_TIME: u64 = {time};\n");
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("bundled_packs.rs");
     std::fs::write(out, code).unwrap();
 }

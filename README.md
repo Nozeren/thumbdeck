@@ -9,7 +9,8 @@ Linux and macOS.
   that apply to the selected project: npm/pnpm/yarn scripts, Makefile targets, Django
   `manage.py` commands, Python (venv, pip, pytest), Docker Compose, Gradle, Cargo and Go.
   Servers and shells (like Django's `runserver`) run in a window of the project's tmux session.
-  Write your own packs in `~/.config/thumbdeck/toolkits/`.
+  Write your own packs in `~/.config/thumbdeck/toolkits/`. **+ › Update toolkit packs** gets
+  the latest packs (a clone in `~/.local/share/thumbdeck/toolkits`) without rebuilding.
 - **Running** (right): what you started, with status and a stop button; its output streams
   into the center, where the project's README is shown otherwise.
 

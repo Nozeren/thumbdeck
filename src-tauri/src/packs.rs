@@ -134,15 +134,86 @@ pub struct Packs {
     pub problems: Vec<String>,
 }
 
+/// The packs repository: HTTPS for anyone when it's public, SSH (your GitHub key) otherwise
+const REPOSITORY: &[&str] =
+    &["https://github.com/Nozeren/thumbdeck-toolkits.git", "git@github.com:Nozeren/thumbdeck-toolkits.git"];
+
+/// Where "Update toolkit packs" keeps its clone of the packs repository
+fn clone_dir() -> Option<PathBuf> {
+    Some(crate::projects::dirs_home()?.join(".local/share/thumbdeck/toolkits"))
+}
+
 pub fn load() -> Packs {
     let mut sources: Vec<(String, String, String)> =
         BUNDLED.iter().map(|(id, text)| (id.to_string(), text.to_string(), "built in".to_string())).collect();
-    if let Some(home) = crate::projects::dirs_home() {
-        for dir in [home.join(".local/share/thumbdeck/toolkits/packs"), home.join(".config/thumbdeck/toolkits")] {
-            sources.extend(read_dir(&dir));
+    if let Some(clone) = clone_dir() {
+        // An older clone than the bundled packs would bring back old versions of them
+        if commit_time(&clone).is_some_and(|t| t >= BUNDLED_TIME) {
+            sources.extend(read_dir(&clone.join("packs")));
         }
     }
+    if let Some(home) = crate::projects::dirs_home() {
+        sources.extend(read_dir(&home.join(".config/thumbdeck/toolkits")));
+    }
     from_sources(sources)
+}
+
+fn git(args: &[&str]) -> std::io::Result<std::process::Output> {
+    std::process::Command::new("git")
+        .args(args)
+        .env_clear()
+        .envs(crate::runner::shell_env().iter().cloned())
+        .env("GIT_TERMINAL_PROMPT", "0") // fail instead of asking for a password
+        .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes") // or for a passphrase
+        .stdin(std::process::Stdio::null())
+        .output()
+}
+
+/// Seconds since 1970 of a repository's current commit
+fn commit_time(repo: &Path) -> Option<u64> {
+    if !repo.join(".git").exists() {
+        return None;
+    }
+    let out = git(&["-C", &repo.to_string_lossy(), "log", "-1", "--format=%ct"]).ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// Get the latest packs without rebuilding thumbdeck: clone the packs repository, or pull it.
+pub fn update() -> Result<String, String> {
+    update_from(REPOSITORY, &clone_dir().ok_or("no home folder")?)
+}
+
+fn update_from(urls: &[&str], dir: &Path) -> Result<String, String> {
+    let path = dir.to_string_lossy();
+    let head = || git(&["-C", &path, "rev-parse", "--short", "HEAD"]).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    let (before, out) = if dir.join(".git").exists() {
+        (head().ok(), git(&["-C", &path, "pull", "--ff-only", "-q"]))
+    } else if dir.exists() && dir.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+        return Err(format!("{path} is in the way (not a git clone); move it and try again"));
+    } else {
+        if let Some(parent) = dir.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut out = git(&["clone", "-q", urls[0], &path]);
+        for url in &urls[1..] {
+            if out.as_ref().is_ok_and(|o| o.status.success()) {
+                break;
+            }
+            out = git(&["clone", "-q", url, &path]);
+        }
+        (None, out)
+    };
+    let out = out.map_err(|e| format!("couldn't run git: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("updating packs failed: {}", err.lines().last().unwrap_or("git failed").trim()));
+    }
+    let after = head().map_err(|e| e.to_string())?;
+    let note = if commit_time(dir).is_some_and(|t| t < BUNDLED_TIME) { " (older than the built-in ones, so not used)" } else { "" };
+    Ok(match before {
+        Some(b) if b == after => format!("toolkit packs are up to date ({after}){note}"),
+        _ => format!("toolkit packs updated to {after}{note}"),
+    })
 }
 
 /// (id, text, where it came from) for every .toml in a folder
@@ -364,6 +435,40 @@ pub mod tests {
         assert_eq!(ids, ["a", "work"], "only .toml files, sorted");
         assert!(found[1].2.ends_with("work.toml"), "problems name the file");
         assert!(read_dir(&d.0.join("missing")).is_empty());
+    }
+
+    #[test]
+    fn update_clones_then_pulls() {
+        let d = TempDir::new("update");
+        let upstream = d.0.join("upstream");
+        let clone = d.0.join("share/toolkits");
+        let run = |args: &[&str]| assert!(git(args).unwrap().status.success(), "git {args:?}");
+        let up = upstream.to_string_lossy().to_string();
+        run(&["init", "-q", &up]);
+        std::fs::create_dir_all(upstream.join("packs")).unwrap();
+        std::fs::write(upstream.join("packs/a.toml"), "schema = 1\nname = \"A\"").unwrap();
+        let commit = |msg: &str| {
+            run(&["-C", &up, "add", "-A"]);
+            run(&["-C", &up, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg]);
+        };
+        commit("one");
+
+        let first = update_from(&["/nowhere/a", &up], &clone);
+        assert!(first.as_ref().is_ok_and(|m| m.contains("updated to")), "falls back to the next url: {first:?}");
+        assert_eq!(read_dir(&clone.join("packs")).len(), 1);
+        assert!(update_from(&[&up], &clone).is_ok_and(|m| m.contains("up to date")));
+
+        std::fs::write(upstream.join("packs/b.toml"), "schema = 1\nname = \"B\"").unwrap();
+        commit("two");
+        assert!(update_from(&[&up], &clone).is_ok_and(|m| m.contains("updated to")));
+        assert_eq!(read_dir(&clone.join("packs")).len(), 2, "pulled the new pack");
+        assert!(commit_time(&clone).is_some());
+
+        let in_the_way = d.0.join("other");
+        std::fs::create_dir_all(&in_the_way).unwrap();
+        std::fs::write(in_the_way.join("x"), "").unwrap();
+        assert!(update_from(&[&up], &in_the_way).is_err_and(|e| e.contains("in the way")));
+        assert!(update_from(&["/nowhere/a", "/nowhere/b"], &d.0.join("c2")).is_err());
     }
 
     #[test]

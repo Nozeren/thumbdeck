@@ -197,6 +197,19 @@
     const path = await open({ directory: true, title });
     if (typeof path === "string") await edit(change, path);
   }
+  // Clone / pull the packs repository, then show what the new packs detect
+  async function updatePacks() {
+    addMenu = false;
+    say("updating toolkit packs…");
+    try {
+      say(await invoke<string>("update_packs"));
+    } catch (err) {
+      say(String(err), true);
+      return;
+    }
+    applyList(await invoke<ProjectList>("list_projects")); // icons
+    if (selected) details = await invoke<Details>("project_details", { path: selected.path });
+  }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
   // Toolkit grouped by where each action came from: yours, then one group per pack
@@ -311,6 +324,7 @@
             <div class="menu">
               <button onclick={() => pickFolder("add")}>Add project…</button>
               <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
+              <button onclick={updatePacks}>Update toolkit packs</button>
             </div>
           {/if}
         </span>

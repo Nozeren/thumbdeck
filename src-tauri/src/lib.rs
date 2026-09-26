@@ -128,6 +128,12 @@ async fn open_in_tmux(path: String, name: String) -> Result<String, String> {
     terminal::open(&path, &name)
 }
 
+/// Clone or pull the toolkit packs repository; returns a short message
+#[tauri::command]
+async fn update_packs() -> Result<String, String> {
+    packs::update()
+}
+
 /// Run a toolkit action in a window of the project's tmux session
 #[tauri::command]
 async fn run_in_tmux(path: String, name: String, window: String, command: String) -> Result<String, String> {
@@ -147,7 +153,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
