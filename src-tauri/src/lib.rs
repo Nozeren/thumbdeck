@@ -5,10 +5,11 @@ mod projects;
 mod runner;
 mod settings;
 mod terminal;
+mod updater;
 
 use serde::Serialize;
 use std::path::Path;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 #[derive(Serialize)]
 struct Details {
@@ -209,6 +210,44 @@ fn logs_size(file: String) -> Option<u64> {
     std::fs::metadata(file).ok().map(|m| m.len())
 }
 
+// ------------------------------------------------------------ updates
+
+fn version(app: &AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// A newer release than this one, if there is one (none for dev builds)
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<updater::Update>, String> {
+    updater::check(&version(&app))
+}
+
+/// Download, check and install the latest release; returns its version (runs after a restart)
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<String, String> {
+    updater::install(&version(&app))
+}
+
+#[tauri::command]
+fn restart(app: AppHandle) {
+    app.restart();
+}
+
+/// Look for a new release a little after start, then every few hours
+fn watch_for_updates(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        match updater::check(&version(&app)) {
+            Ok(Some(update)) => {
+                let _ = app.emit("update-available", update);
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("thumbdeck: checking for updates: {e}"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+    });
+}
+
 #[tauri::command]
 fn stop_run(runs: State<'_, runner::Runs>, id: u64) {
     runner::stop(&runs, id);
@@ -224,7 +263,11 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size])
+            logs_summary, logs_size, check_update, install_update, restart])
+        .setup(|app| {
+            watch_for_updates(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

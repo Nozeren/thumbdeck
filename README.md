@@ -33,6 +33,14 @@ Builds a release version and installs it for your user, no sudo: on Linux to `~/
 with a launcher entry and icon (so it shows up in wofi / rofi / your app menu), on macOS to
 `~/Applications/thumbdeck.app`. Run it again after pulling changes to update.
 
+## Updates
+
+thumbdeck checks for a new release on start (and every few hours); when there is one, a dot with
+its version shows next to the title: click it to see what's new and update. **+ › Check for
+updates** asks right away. Releases are signed; a download that isn't signed with thumbdeck's key
+is refused. Builds from source (`./install.sh`, `npm run tauri dev`) update the same way once a
+newer release exists; dev builds never do.
+
 ## Develop
 
 Needs Node, Rust (`rustup default stable`) and, on Linux, WebKitGTK (`webkit2gtk-4.1`);
@@ -48,3 +56,18 @@ npm run tauri build    # build the app
 The toolkit packs are compiled in from the `src-tauri/toolkits` submodule. To try changes to
 packs in another checkout, point `THUMBDECK_TOOLKITS` at it:
 `THUMBDECK_TOOLKITS=~/dev/thumbdeck-toolkits npm run tauri dev`.
+
+## Releasing
+
+```sh
+scripts/release.sh 0.2.0          # sets the version, commits, tags v0.2.0
+git push origin main v0.2.0       # GitHub Actions builds, signs and publishes it
+```
+
+The workflow (`.github/workflows/release.yml`) builds Linux x86_64 and macOS (universal),
+signs the builds with the updater key (`~/.tauri/thumbdeck.key`; the public half is
+`src-tauri/src/updater.pub`) and publishes them, with the `latest.json` apps read, to the public
+[thumbdeck-releases](https://github.com/Nozeren/thumbdeck-releases) repo. To try an update
+before publishing it, point a release build at a local copy:
+`THUMBDECK_UPDATE_URL=file:///path/to/latest.json thumbdeck`.
+

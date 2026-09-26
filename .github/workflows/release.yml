@@ -1,0 +1,117 @@
+# A tag like v0.2.0 (made by scripts/release.sh) builds thumbdeck for Linux and macOS, signs the
+# builds with the updater key, and publishes them to the public Nozeren/thumbdeck-releases repo,
+# with the latest.json installed apps check for updates.
+#
+# Secrets:
+#   RELEASES_TOKEN              fine-grained token: Contents read on thumbdeck and
+#                               thumbdeck-toolkits (the submodule), read and write on
+#                               thumbdeck-releases
+#   TAURI_SIGNING_PRIVATE_KEY   ~/.tauri/thumbdeck.key (its public half is src-tauri/src/updater.pub)
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: macos-latest
+            platform: darwin-universal
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.RELEASES_TOKEN }} # the toolkits submodule is private
+
+      - name: The tag matches the app's version
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tauri.conf.json says $version but the tag is $GITHUB_REF_NAME" >&2; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'darwin-universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Linux libraries
+        if: matrix.platform == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
+
+      - run: npm ci
+
+      - name: Build (Linux)
+        if: matrix.platform == 'linux-x86_64'
+        run: |
+          npm run tauri build -- --no-bundle
+          mkdir -p out
+          tar -czf out/thumbdeck-linux-x86_64.tar.gz -C src-tauri/target/release thumbdeck
+
+      - name: Build (macOS)
+        if: matrix.platform == 'darwin-universal'
+        run: |
+          npm run tauri build -- --target universal-apple-darwin --bundles app
+          mkdir -p out
+          tar -czf out/thumbdeck-darwin-universal.tar.gz -C src-tauri/target/universal-apple-darwin/release/bundle/macos thumbdeck.app
+
+      - name: Sign for the updater
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npx tauri signer sign --app-version "$VERSION" out/thumbdeck-${{ matrix.platform }}.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: out/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the commits since the last release are its notes
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Release notes and latest.json
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          previous=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          git log --format='- %s' ${previous:+$previous..}"$GITHUB_REF_NAME" > notes.md
+          python3 scripts/latest_json.py "$version" notes.md out > out/latest.json
+          cat out/latest.json
+
+      - name: Publish to Nozeren/thumbdeck-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" -R Nozeren/thumbdeck-releases \
+            --title "thumbdeck ${GITHUB_REF_NAME#v}" --notes-file notes.md \
+            out/*.tar.gz out/*.sig out/latest.json

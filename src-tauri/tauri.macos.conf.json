@@ -11,5 +11,10 @@
         "hiddenTitle": true
       }
     ]
+  },
+  "bundle": {
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }

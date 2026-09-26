@@ -4,7 +4,7 @@
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
-  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab } from "$lib/types";
+  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, Update } from "$lib/types";
   import { extensions, type TabExports } from "$lib/extensions";
 
   let projects = $state<Project[]>([]);
@@ -123,7 +123,7 @@
 
   function onKey(e: KeyboardEvent) {
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
-    const dialog = form || setupForm || helpOpen;
+    const dialog = form || setupForm || helpOpen || updateDialog;
     // 1 README, 2… extension tabs
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
@@ -143,11 +143,14 @@
       e.preventDefault();
       return;
     }
+    // Enter / Space on a focused button press it (not thumbdeck's Enter = open in tmux, Space = hints)
+    if ((e.key === "Enter" || e.key === " ") && e.target instanceof HTMLElement && e.target.closest("button")) return;
     if (e.key === "Escape") {
       addMenu = false;
       tabMenu = false;
       form = null;
       setupForm = null;
+      if (updateState !== "installing") updateDialog = false;
       hints = false;
       helpOpen = false;
       if (typing) (e.target as HTMLElement).blur();
@@ -268,6 +271,35 @@
     if (typeof path === "string") await edit(change, path);
   }
   // Clone / pull the packs repository, then show what the new packs detect
+  // ------------------------------------------------------------ updates
+  let update = $state<Update | null>(null); // a newer release (checked on start)
+  let updateDialog = $state(false);
+  let updateState = $state<"idle" | "installing" | "installed">("idle");
+  let updateError = $state("");
+
+  async function checkForUpdates() {
+    addMenu = false;
+    try {
+      update = await invoke<Update | null>("check_update");
+      if (update) updateDialog = true;
+      else say("thumbdeck is up to date");
+    } catch (err) {
+      say(String(err), true);
+    }
+  }
+
+  async function installUpdate() {
+    updateState = "installing";
+    updateError = "";
+    try {
+      await invoke<string>("install_update");
+      updateState = "installed";
+    } catch (err) {
+      updateError = String(err);
+      updateState = "idle";
+    }
+  }
+
   async function updatePacks() {
     addMenu = false;
     say("updating toolkit packs…");
@@ -366,6 +398,7 @@
         outputEl?.scrollTo({ top: outputEl.scrollHeight });
       }
     });
+    const unlistenUpdate = listen<Update>("update-available", (e) => (update = e.payload));
     const unlistenExit = listen<{ id: number; code: number | null }>("run-exit", (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (r) {
@@ -377,6 +410,7 @@
     return () => {
       unlistenOut.then((f) => f());
       unlistenExit.then((f) => f());
+      unlistenUpdate.then((f) => f());
       clearInterval(timer);
     };
   });
@@ -387,7 +421,12 @@
 <main class:mac class:wide>
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
-    <header class="app" data-tauri-drag-region>thumbdeck</header>
+    <header class="app" data-tauri-drag-region>
+      thumbdeck
+      {#if update}
+        <button class="update-dot" title="thumbdeck {update.version} is available" onclick={() => (updateDialog = true)}>● {update.version}</button>
+      {/if}
+    </header>
     <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey} />
     <section class="card helm">
       <h2>
@@ -399,6 +438,7 @@
               <button onclick={() => pickFolder("add")}>Add project…</button>
               <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
               <button onclick={updatePacks}>Update toolkit packs</button>
+              <button onclick={checkForUpdates}>Check for updates</button>
             </div>
           {/if}
         </span>
@@ -607,6 +647,30 @@
   </div>
 {/if}
 
+{#if updateDialog && update}
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && updateState !== "installing" && (updateDialog = false)}>
+    <div class="dialog">
+      <h2><span class="dot green"></span>thumbdeck {update.version} <span class="for">you have {update.current}</span></h2>
+      {#if update.notes}<article class="readme notes">{@html marked.parse(update.notes)}</article>{/if}
+      {#if updateError}<p class="hint problem">{updateError}</p>{/if}
+      {#if updateState === "installed"}
+        <p class="hint">Installed. It runs after a restart.</p>
+      {/if}
+      <div class="buttons">
+        {#if updateState === "installed"}
+          <button class="ghost" onclick={() => (updateDialog = false)}>Later</button>
+          <button class="primary" onclick={() => invoke("restart")} {@attach (el) => el.focus()}>Restart now</button>
+        {:else}
+          <button class="ghost" disabled={updateState === "installing"} onclick={() => (updateDialog = false)}>Later</button>
+          <button class="primary" disabled={updateState === "installing"} onclick={installUpdate} {@attach (el) => el.focus()}>
+            {updateState === "installing" ? "Updating…" : "Update"}
+          </button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if setupForm && selected}
   {@const ext = extensions[setupForm.tab.extension]}
   {#if ext}
@@ -676,7 +740,10 @@
   .branch { color: var(--purple); font: 12px var(--mono); }
 
   /* left */
-  .app { font: 700 16px var(--mono); padding: 4px 6px; }
+  .app { font: 700 16px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
+  .update-dot { padding: 1px 8px; border-radius: 10px; background: var(--bg1); color: var(--green); font: 600 11px var(--mono); }
+  .update-dot:hover { background: var(--bg2); }
+  .notes { max-height: 40vh; padding: 0 4px; font-size: 13px; }
   .filter { width: 100%; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: 13px var(--mono); outline: none; }
   .filter:focus { border-color: var(--purple); }
   .helm { flex: 1; overflow: auto; }

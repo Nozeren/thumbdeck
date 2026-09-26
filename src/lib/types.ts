@@ -84,3 +84,12 @@ export interface Run {
   code: number | null;
   lines: { text: string; stderr: boolean }[];
 }
+
+/** A newer release of thumbdeck */
+export interface Update {
+  version: string;
+  current: string;
+  /** What's new (markdown) */
+  notes: string;
+  date: string;
+}
