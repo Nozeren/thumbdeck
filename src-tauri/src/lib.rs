@@ -2,6 +2,7 @@ mod actions;
 mod projects;
 mod runner;
 mod settings;
+mod terminal;
 
 use serde::Serialize;
 use std::path::Path;
@@ -106,6 +107,11 @@ fn run_action(app: AppHandle, runs: State<'_, runner::Runs>, path: String, comma
 }
 
 #[tauri::command]
+async fn open_in_tmux(path: String, name: String) -> Result<String, String> {
+    terminal::open(&path, &name)
+}
+
+#[tauri::command]
 fn stop_run(runs: State<'_, runner::Runs>, id: u64) {
     runner::stop(&runs, id);
 }
@@ -117,7 +123,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

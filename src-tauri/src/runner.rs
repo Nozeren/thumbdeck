@@ -33,7 +33,7 @@ struct Exit {
 /// The environment of the user's interactive login shell. Apps started from a desktop
 /// launcher or the macOS Dock don't get the PATH your terminal has (Homebrew, ~/.local/bin,
 /// fnm, ...), so it's read once from the shell itself and used for every command.
-fn shell_env() -> &'static Vec<(String, String)> {
+pub fn shell_env() -> &'static Vec<(String, String)> {
     static ENV: OnceLock<Vec<(String, String)>> = OnceLock::new();
     ENV.get_or_init(|| {
         const MARKER: &str = "__THUMBDECK_ENV__";

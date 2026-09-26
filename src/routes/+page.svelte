@@ -14,6 +14,23 @@
   // Form for adding / editing a custom action (null when closed)
   let form = $state<CustomAction | null>(null);
   let showHiddenActions = $state(false);
+  // Short message at the bottom (e.g. after opening a project in tmux)
+  let toast = $state<{ text: string; error: boolean } | null>(null);
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  function say(text: string, error = false) {
+    toast = { text, error };
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = null), 3500);
+  }
+
+  async function openInTmux() {
+    if (!selected) return;
+    try {
+      say(await invoke<string>("open_in_tmux", { path: selected.path, name: selected.name }));
+    } catch (err) {
+      say(String(err), true);
+    }
+  }
   let addMenuEl = $state<HTMLElement | null>(null);
 
   // Close the + menu on a click anywhere else, or on Esc
@@ -93,6 +110,7 @@
       case "[": cycleRuns(-1); break;
       case "]": cycleRuns(1); break;
       case "?": helpOpen = !helpOpen; break;
+      case "Enter": openInTmux(); break;
       default: return;
     }
     e.preventDefault();
@@ -332,6 +350,7 @@
         <span> / </span><strong>{selected.name}</strong>
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
         <span class="spacer"></span>
+        <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> Open in tmux</button>
         <button class="tab" class:on={shownRun === null} onclick={() => (shownRun = null)}>README</button>
         {#if current}
           <button class="tab on">{current.label}</button>
@@ -427,12 +446,17 @@
   </aside>
 </main>
 
+{#if toast}
+  <div class="toast" class:error={toast.error}>{toast.text}</div>
+{/if}
+
 {#if helpOpen}
   <div class="backdrop" role="presentation" onclick={() => (helpOpen = false)}>
     <div class="dialog help">
       <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
       <dl>
         <dt>j / k</dt><dd>next / previous project</dd>
+        <dt>Enter</dt><dd>open the project in tmux (its own session: Neovim + a shell)</dd>
         <dt>gg / G</dt><dd>first / last project</dd>
         <dt>/</dt><dd>filter projects (Enter opens the first match)</dd>
         <dt>p</dt><dd>pin / unpin project</dd>
@@ -579,6 +603,10 @@
   .hidden-actions { margin-top: 12px; }
   .hidden-list { list-style: none; margin: 0; padding: 0 0 0 10px; font: 12px var(--mono); }
   .avatar.custom { background: var(--yellow); }
+  .tab.open { color: var(--green); }
+  .tab.open:hover { background: var(--bg2); }
+  .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; padding: 8px 16px; border-radius: 10px; background: var(--bg1); border: 1px solid var(--green); font: 12.5px var(--mono); box-shadow: 0 8px 24px #0008; }
+  .toast.error { border-color: var(--red); color: var(--red); }
   .hint-key { min-width: 16px; padding: 0 4px; border-radius: 4px; text-align: center; background: var(--orange); color: var(--bg0); font-weight: 700; }
   .hint-note { font: 400 11px var(--mono); color: var(--orange); }
   .help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
