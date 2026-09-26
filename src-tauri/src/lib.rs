@@ -1,4 +1,5 @@
 mod actions;
+mod extensions;
 mod packs;
 mod projects;
 mod runner;
@@ -18,6 +19,15 @@ struct Details {
     /// Toolkit packs that couldn't be used, and why
     problems: Vec<String>,
     readme: Option<String>,
+    /// Extension tabs turned on for the project
+    tabs: Vec<TabInfo>,
+}
+
+#[derive(Serialize)]
+struct TabInfo {
+    title: String,
+    #[serde(flatten)]
+    tab: extensions::Tab,
 }
 
 fn details(app: &AppHandle, path: &str) -> Details {
@@ -41,6 +51,7 @@ fn details(app: &AppHandle, path: &str) -> Details {
         hidden,
         problems: toolkit.problems,
         readme: projects::readme(Path::new(path)),
+        tabs: s.extensions.get(path).into_iter().flatten().map(|t| TabInfo { title: t.title(), tab: t.complete() }).collect(),
     }
 }
 
@@ -141,6 +152,64 @@ async fn run_in_tmux(path: String, name: String, window: String, command: String
 }
 
 #[tauri::command]
+fn extensions_available() -> &'static [extensions::Extension] {
+    extensions::AVAILABLE
+}
+
+/// A new tab of an extension, with its default setup (not saved yet)
+#[tauri::command]
+fn new_tab(extension: String) -> Result<extensions::Tab, String> {
+    extensions::Tab::new(&extension).ok_or_else(|| format!("no extension {extension}"))
+}
+
+/// Turn an extension on for a project ("add"), save a tab's setup ("save") or turn it off
+/// ("remove"); returns the new details.
+#[tauri::command]
+async fn edit_tab(app: AppHandle, path: String, change: String, index: usize, tab: Option<extensions::Tab>) -> Result<Details, String> {
+    settings::update(&app, |s| settings::edit_tab(s, &path, &change, index, tab))?;
+    Ok(details(&app, &path))
+}
+
+// ------------------------------------------------------------ logs extension
+
+use extensions::logs;
+
+/// What's wrong with a setup (empty when it's fine)
+#[tauri::command]
+fn logs_check(setup: logs::Setup) -> Vec<String> {
+    setup.problems()
+}
+
+#[derive(Serialize)]
+struct LogList {
+    files: Vec<logs::files::LogFile>,
+    /// Log folders that don't exist
+    missing: Vec<String>,
+}
+
+#[tauri::command]
+async fn logs_list(path: String, setup: logs::Setup) -> LogList {
+    let (files, missing) = logs::files::list(Path::new(&path), &setup);
+    LogList { files, missing }
+}
+
+#[tauri::command]
+async fn logs_open(file: String, setup: logs::Setup) -> Result<logs::files::Log, String> {
+    logs::files::open(Path::new(&file), &setup)
+}
+
+#[tauri::command]
+async fn logs_summary(file: String, setup: logs::Setup) -> Result<logs::files::Summary, String> {
+    logs::files::summary(Path::new(&file), &setup)
+}
+
+/// A log's size, to notice it growing (live tail)
+#[tauri::command]
+fn logs_size(file: String) -> Option<u64> {
+    std::fs::metadata(file).ok().map(|m| m.len())
+}
+
+#[tauri::command]
 fn stop_run(runs: State<'_, runner::Runs>, id: u64) {
     runner::stop(&runs, id);
 }
@@ -153,7 +222,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
+            extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
+            logs_summary, logs_size])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -4,7 +4,8 @@
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
-  import type { Action, CustomAction, Details, Project, ProjectList, Run } from "$lib/types";
+  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab } from "$lib/types";
+  import { extensions, type TabExports } from "$lib/extensions";
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
@@ -36,7 +37,54 @@
   // Close the + menu on a click anywhere else, or on Esc
   function closeMenuOutside(e: MouseEvent) {
     if (addMenu && addMenuEl && !addMenuEl.contains(e.target as Node)) addMenu = false;
+    if (tabMenu && tabMenuEl && !tabMenuEl.contains(e.target as Node)) tabMenu = false;
   }
+
+  // A click outside the center gives the keyboard back to thumbdeck
+  function mouseDown(e: MouseEvent) {
+    if (keysToTab && centerEl && !centerEl.contains(e.target as Node)) keysToTab = false;
+  }
+  // ------------------------------------------------------------ extension tabs
+  let available = $state<Extension[]>([]);
+  // Extension tab shown in the center (its index in details.tabs); null: README or a run
+  let shownTab = $state<number | null>(null);
+  // The shown tab has the keyboard (a click in it, or its number key); Esc gives it back
+  let keysToTab = $state(false);
+  let tabRef = $state<TabExports | null>(null);
+  // The center takes the whole window (z): more room for a log, a README, a run's output
+  let wide = $state(false);
+  let tabMenu = $state(false);
+  let tabMenuEl = $state<HTMLElement | null>(null);
+  let centerEl = $state<HTMLElement | null>(null);
+  // Setup form for a tab: index null for a new one (saved on Add)
+  let setupForm = $state<{ index: number | null; tab: Tab } | null>(null);
+
+  function showTab(i: number | null, keys = true) {
+    shownRun = null;
+    shownTab = i;
+    keysToTab = i !== null && keys;
+  }
+
+  async function addTab(extension: string) {
+    tabMenu = false;
+    try {
+      setupForm = { index: null, tab: await invoke<Tab>("new_tab", { extension }) };
+    } catch (err) {
+      say(String(err), true);
+    }
+  }
+
+  async function saveTab(change: "add" | "save" | "remove", setup: unknown = null) {
+    if (!selected || !setupForm) return;
+    const { index, tab } = setupForm;
+    setupForm = null;
+    details = await invoke<Details>("edit_tab", {
+      path: selected.path, change, index: index ?? 0, tab: setup === null ? null : { ...tab, setup },
+    });
+    if (change === "add") showTab(details.tabs.length - 1);
+    else if (change === "remove") showTab(null);
+  }
+
   // ------------------------------------------------------------ keyboard
   let hints = $state(false); // Space pressed: Toolkit buttons show their letters
   let helpOpen = $state(false);
@@ -75,15 +123,37 @@
 
   function onKey(e: KeyboardEvent) {
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
+    const dialog = form || setupForm || helpOpen;
+    // 1 README, 2… extension tabs
+    if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
+      const n = Number(e.key);
+      if (n === 1) showTab(null);
+      else if (details.tabs[n - 2]) showTab(n - 2);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "z" && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      wide = !wide;
+      e.preventDefault();
+      return;
+    }
+    // The shown tab has the keyboard: its keys, and nothing of thumbdeck's but Esc
+    if (keysToTab && tabShown && tabRef && !typing && !dialog) {
+      if (!tabRef.handleKey(e) && e.key === "Escape") keysToTab = false;
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape") {
       addMenu = false;
+      tabMenu = false;
       form = null;
+      setupForm = null;
       hints = false;
       helpOpen = false;
       if (typing) (e.target as HTMLElement).blur();
       return;
     }
-    if (typing || form || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typing || dialog || e.ctrlKey || e.metaKey || e.altKey) return;
 
     if (hints) {
       e.preventDefault();
@@ -212,6 +282,8 @@
   }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
+  // An extension tab is in the center (not the README or a run's output)
+  const tabShown = $derived(shownRun === null && shownTab !== null && !!details?.tabs[shownTab]);
   // Toolkit grouped by where each action came from: yours, then one group per pack
   const groups = $derived.by(() => {
     const byGroup = new Map<string, Action[]>();
@@ -223,6 +295,7 @@
     selected = p;
     invoke("edit_projects", { change: "last", path: p.path }); // remembered for the next start
     shownRun = null;
+    showTab(null);
     details = null;
     details = await invoke<Details>("project_details", { path: p.path });
   }
@@ -283,6 +356,7 @@
 
   onMount(() => {
     invoke<ProjectList>("list_projects").then((list) => applyList(list, true));
+    invoke<Extension[]>("extensions_available").then((list) => (available = list));
     const unlistenOut = listen<{ id: number; line: string; stderr: boolean }>("run-output", async (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (!r) return;
@@ -308,9 +382,9 @@
   });
 </script>
 
-<svelte:window onclick={closeMenuOutside} onkeydown={onKey} />
+<svelte:window onclick={closeMenuOutside} onmousedown={mouseDown} onkeydown={onKey} />
 <div class="drag" data-tauri-drag-region></div>
-<main class:mac>
+<main class:mac class:wide>
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
     <header class="app" data-tauri-drag-region>thumbdeck</header>
@@ -369,7 +443,7 @@
   </aside>
 
   <!-- ------------------------------------------------------------ center -->
-  <section class="panel center">
+  <section class="panel center" bind:this={centerEl}>
     {#if selected}
       <nav class="crumbs">
         <span>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
@@ -377,7 +451,23 @@
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
         <span class="spacer"></span>
         <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> Open in tmux</button>
-        <button class="tab" class:on={shownRun === null} onclick={() => (shownRun = null)}>README</button>
+        <button class="tab" class:on={shownRun === null && !tabShown} title="README (1)" onclick={() => showTab(null)}>README</button>
+        {#each details?.tabs ?? [] as t, i}
+          <button class="tab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
+                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}>{t.title}</button>
+        {/each}
+        <span class="menu-anchor" bind:this={tabMenuEl}>
+          <button class="tab" title="Add a tab to this project" onclick={() => (tabMenu = !tabMenu)}>+</button>
+          {#if tabMenu}
+            <div class="menu">
+              {#each available as x}
+                <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
+              {/each}
+            </div>
+          {/if}
+        </span>
+        <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
+                onclick={() => (wide = !wide)}>{wide ? "⤡" : "⤢"}</button>
         {#if current}
           <button class="tab on">{current.label}</button>
         {/if}
@@ -386,6 +476,19 @@
         <pre class="output" bind:this={outputEl}><span class="cmd">$ {current.command}</span>
 {#each current.lines as l}<span class:err={l.stderr}>{l.text}</span>
 {/each}{#if current.endedAt !== null}<span class={current.code === 0 ? "ok" : "err"}>{current.code === 0 ? "✓ finished" : `✗ exited with ${current.code}`} after {elapsed(current)}</span>{/if}</pre>
+      {:else if tabShown && details && shownTab !== null}
+        {@const t = details.tabs[shownTab]}
+        {@const ext = extensions[t.extension]}
+        {#if ext}
+          {#key `${selected.path}:${shownTab}:${JSON.stringify(t.setup)}`}
+            <ext.tab bind:this={tabRef} path={selected.path} setup={t.setup} active={keysToTab} {say}
+                     onActivate={() => (keysToTab = true)} onRelease={() => (keysToTab = false)}
+                     onEditSetup={() => (setupForm = { index: shownTab, tab: t })} />
+          {/key}
+        {:else}
+          <p class="empty">This thumbdeck doesn't have the extension "{t.extension}" (a newer version may).</p>
+        {/if}
+        {#if keysToTab}<p class="keys-hint">keys go to {t.title} · Esc gives them back</p>{/if}
       {:else if details?.readme}
         <article class="readme">{@html marked.parse(details.readme)}</article>
       {:else}
@@ -486,6 +589,8 @@
       <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
       <dl>
         <dt>j / k</dt><dd>next / previous project</dd>
+        <dt>1, 2…</dt><dd>README, then the project's tabs (a tab takes the keyboard; Esc gives it back)</dd>
+        <dt>z</dt><dd>expand the center to the whole window / back</dd>
         <dt>Enter</dt><dd>open the project in tmux (its own session: Neovim + a shell)</dd>
         <dt>gg / G</dt><dd>first / last project</dd>
         <dt>/</dt><dd>filter projects (Enter opens the first match)</dd>
@@ -500,6 +605,15 @@
       </dl>
     </div>
   </div>
+{/if}
+
+{#if setupForm && selected}
+  {@const ext = extensions[setupForm.tab.extension]}
+  {#if ext}
+    <ext.setup setup={setupForm.tab.setup} isNew={setupForm.index === null} project={selected.name}
+               onSave={(setup) => saveTab(setupForm?.index === null ? "add" : "save", setup)}
+               onRemove={() => saveTab("remove")} onCancel={() => (setupForm = null)} />
+  {/if}
 {/if}
 
 {#if form && selected}
@@ -542,20 +656,22 @@
   }
   :global(html, body) { margin: 0; height: 100%; background: var(--bg-dim); color: var(--fg); font: 14px/1.5 var(--sans); }
   :global(*) { box-sizing: border-box; }
-  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :global(button) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 
   /* invisible strip along the top to move the window by (macOS has no title bar here) */
   .drag { position: fixed; inset: 0 0 auto 0; height: 8px; z-index: 10; }
   main.mac .app { padding-top: 26px; }
   main { display: grid; grid-template-columns: 250px 1fr 340px; gap: 8px; height: 100vh; padding: 8px; }
+  main.wide { grid-template-columns: 1fr; }
+  main.wide > .left, main.wide > .right { display: none; }
   .panel { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .card { background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; padding: 12px; }
   h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: 600 13px var(--mono); }
   h3 { margin: 10px 0 6px; font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; letter-spacing: 0.08em; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .dot.purple { background: var(--purple); } .dot.green { background: var(--green); } .dot.orange { background: var(--orange); }
-  .count, .for { margin-left: auto; color: var(--grey); font-weight: 400; }
-  .hint, .empty { color: var(--grey); font-size: 13px; }
+  :global(.dot) { width: 8px; height: 8px; border-radius: 50%; }
+  :global(.dot.purple) { background: var(--purple); } :global(.dot.green) { background: var(--green); } :global(.dot.orange) { background: var(--orange); }
+  .count, :global(.for) { margin-left: auto; color: var(--grey); font-weight: 400; }
+  :global(.hint), .empty { color: var(--grey); font-size: 13px; }
   .hint.problem { color: var(--red); font-size: 12px; margin: 0 0 6px; }
   .branch { color: var(--purple); font: 12px var(--mono); }
 
@@ -567,9 +683,9 @@
   .section { margin-top: 6px; }
   .section-head { display: flex; align-items: center; }
   .section-head:hover .hide { opacity: 1; }
-  .fold { flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; padding: 4px 6px; font: 600 11px var(--mono); color: var(--grey); letter-spacing: 0.03em; }
-  .fold:hover { color: var(--fg); }
-  .caret { width: 10px; }
+  :global(.fold) { flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; padding: 4px 6px; font: 600 11px var(--mono); color: var(--grey); letter-spacing: 0.03em; }
+  :global(.fold:hover) { color: var(--fg); }
+  :global(.caret) { width: 10px; }
   .n { margin-left: auto; font-weight: 400; opacity: 0.7; }
   .helm ul { list-style: none; margin: 2px 0 4px; padding: 0 0 0 10px; }
   .project { display: flex; align-items: center; gap: 2px; }
@@ -580,8 +696,8 @@
   .kind { width: 16px; text-align: center; font-family: var(--mono); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .muted { opacity: 0.55; }
-  .icon { width: 22px; height: 22px; flex: none; border-radius: 6px; color: var(--grey); font: 13px var(--mono); }
-  .icon:hover { background: var(--bg2); color: var(--fg); }
+  :global(.icon) { width: 22px; height: 22px; flex: none; border-radius: 6px; color: var(--grey); font: 13px var(--mono); }
+  :global(.icon:hover) { background: var(--bg2); color: var(--fg); }
   .hide { opacity: 0; }
   .project:hover .hide, .star.on { opacity: 1; }
   .star.on { color: var(--yellow); }
@@ -596,12 +712,16 @@
 
 
   /* center */
-  .center { background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }
+  .center { position: relative; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }
   .crumbs { display: flex; align-items: center; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); }
   .crumbs strong { color: var(--fg); }
   .spacer { flex: 1; }
   .tab { padding: 3px 10px; border-radius: 6px; font: 12px var(--mono); color: var(--grey); }
   .tab.on { background: var(--bg2); color: var(--fg); }
+  .tab.keys { box-shadow: inset 0 -2px var(--orange); }
+  .menu-sub { display: block; color: var(--grey); font-size: 11px; }
+  .keys-hint { position: absolute; right: 14px; bottom: 8px; margin: 0; padding: 2px 8px; border-radius: 6px;
+               background: var(--bg1); color: var(--orange); font: 11px var(--mono); pointer-events: none; }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(h1), .readme :global(h2) { font-family: var(--mono); border-bottom: 1px solid var(--bg2); padding-bottom: 6px; }
   .readme :global(code) { font-family: var(--mono); background: var(--bg1); padding: 1px 5px; border-radius: 4px; color: var(--aqua); }
@@ -652,18 +772,18 @@
   .help dt { font-family: var(--mono); color: var(--orange); }
   .help dd { margin: 0; color: var(--fg); }
 
-  .backdrop { position: fixed; inset: 0; z-index: 50; background: #0009; display: grid; place-items: center; }
-  .dialog { width: min(520px, 90vw); background: var(--bg0); border: 1px solid var(--bg3); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px #000a; }
-  .dialog label { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono); color: var(--grey); }
-  .dialog input:not([type]), .dialog textarea { background: var(--bg1); border: 1px solid var(--bg2); border-radius: 8px; padding: 8px 10px; color: var(--fg); font: 13px var(--mono); outline: none; resize: vertical; }
-  .dialog input:not([type]):focus, .dialog textarea:focus { border-color: var(--orange); }
-  .dialog .check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
-  .dialog .hint { margin: -6px 0 0; font-size: 12px; }
-  .buttons { display: flex; justify-content: flex-end; gap: 8px; }
-  .ghost, .primary { padding: 7px 16px; border-radius: 8px; font: 12.5px var(--mono); }
-  .ghost { color: var(--grey); } .ghost:hover { background: var(--bg2); color: var(--fg); }
-  .primary { background: var(--orange); color: var(--bg0); font-weight: 600; }
-  .primary:disabled { opacity: 0.4; cursor: default; }
+  :global(.backdrop) { position: fixed; inset: 0; z-index: 50; background: #0009; display: grid; place-items: center; }
+  :global(.dialog) { width: min(520px, 90vw); background: var(--bg0); border: 1px solid var(--bg3); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px #000a; }
+  :global(.dialog label) { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono); color: var(--grey); }
+  :global(.dialog input:not([type]), .dialog textarea) { background: var(--bg1); border: 1px solid var(--bg2); border-radius: 8px; padding: 8px 10px; color: var(--fg); font: 13px var(--mono); outline: none; resize: vertical; }
+  :global(.dialog input:not([type]):focus, .dialog textarea:focus) { border-color: var(--orange); }
+  :global(.dialog .check) { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
+  :global(.dialog .hint) { margin: -6px 0 0; font-size: 12px; }
+  :global(.buttons) { display: flex; justify-content: flex-end; gap: 8px; }
+  :global(.ghost, .primary) { padding: 7px 16px; border-radius: 8px; font: 12.5px var(--mono); }
+  :global(.ghost) { color: var(--grey); } :global(.ghost:hover) { background: var(--bg2); color: var(--fg); }
+  :global(.primary) { background: var(--orange); color: var(--bg0); font-weight: 600; }
+  :global(.primary:disabled) { opacity: 0.4; cursor: default; }
   .action:hover { border-color: var(--orange); }
   .play { color: var(--orange); }
 </style>

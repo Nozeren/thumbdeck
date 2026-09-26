@@ -22,6 +22,8 @@ pub struct Settings {
     pub custom: HashMap<String, Vec<CustomAction>>,
     /// Detected actions you hid, per project path (action ids like "django:shell")
     pub hidden_actions: HashMap<String, Vec<String>>,
+    /// Extension tabs turned on, per project path
+    pub extensions: HashMap<String, Vec<crate::extensions::Tab>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,6 +54,23 @@ pub fn save_action(s: &mut Settings, project: String, mut action: CustomAction) 
     }
 }
 
+/// Turn an extension on for a project (a second tab of the same extension is allowed),
+/// save its setup, or turn it off. `index` is the tab's position among the project's tabs.
+pub fn edit_tab(s: &mut Settings, project: &str, change: &str, index: usize, tab: Option<crate::extensions::Tab>) {
+    let tabs = s.extensions.entry(project.to_string()).or_default();
+    match (change, tab) {
+        ("add", Some(tab)) => tabs.push(tab),
+        ("save", Some(tab)) if index < tabs.len() => tabs[index] = tab,
+        ("remove", _) if index < tabs.len() => {
+            tabs.remove(index);
+        }
+        _ => {}
+    }
+    if tabs.is_empty() {
+        s.extensions.remove(project);
+    }
+}
+
 pub fn delete_action(s: &mut Settings, project: &str, id: &str) {
     if let Some(list) = s.custom.get_mut(project) {
         list.retain(|a| a.id != id);
@@ -67,7 +86,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new() }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new() }
     }
 }
 
@@ -147,7 +166,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new() }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new() }
     }
 
     #[test]
@@ -207,6 +226,22 @@ mod tests {
     fn custom_actions_saved_before_tmux_still_load() {
         let s: Settings = serde_json::from_str(r#"{"custom": {"/p": [{"id": "1", "name": "a", "command": "b"}]}}"#).unwrap();
         assert_eq!(s.custom["/p"][0].tmux, None);
+    }
+
+    #[test]
+    fn extension_tabs_are_added_saved_and_removed() {
+        let mut s = empty();
+        let tab = crate::extensions::Tab::new("logs").unwrap();
+        edit_tab(&mut s, "/p", "add", 0, Some(tab.clone()));
+        let mut changed = tab.clone();
+        changed.setup["title"] = "Runs".into();
+        edit_tab(&mut s, "/p", "save", 0, Some(changed));
+        assert_eq!(s.extensions["/p"][0].title(), "Runs");
+        edit_tab(&mut s, "/p", "save", 5, Some(tab));
+        edit_tab(&mut s, "/p", "remove", 3, None);
+        assert_eq!(s.extensions["/p"].len(), 1, "out of range changes do nothing");
+        edit_tab(&mut s, "/p", "remove", 0, None);
+        assert!(!s.extensions.contains_key("/p"), "empty projects are dropped");
     }
 
     #[test]

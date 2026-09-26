@@ -11,6 +11,12 @@ Linux and macOS.
   Servers and shells (like Django's `runserver`) run in a window of the project's tmux session.
   Write your own packs in `~/.config/thumbdeck/toolkits/`. **+ › Update toolkit packs** gets
   the latest packs (a clone in `~/.local/share/thumbdeck/toolkits`) without rebuilding.
+- **Tabs** (center): next to the README, add tabs to a project with **+**. **Logs** shows the
+  project's log files (JSON lines from pino, structlog, … or plain text from Python, Django, Rust,
+  Go, nginx, …): levels, search, jump to errors, live tail, the full entry of a line, and optional
+  sections. Set it up per project (folders, file pattern, sections) with ⚙ or `S`; `1`, `2`, …
+  switch tabs, and a tab takes the keyboard until Esc (`?` in the tab lists its keys). `z` (or ⤢)
+  expands the center to the whole window.
 - **Running** (right): what you started, with status and a stop button; its output streams
   into the center, where the project's README is shown otherwise.
 

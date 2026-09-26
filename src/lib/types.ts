@@ -51,6 +51,25 @@ export interface Details {
   /** Toolkit packs that couldn't be used, and why */
   problems: string[];
   readme: string | null;
+  /** Extension tabs turned on for the project */
+  tabs: TabInfo[];
+}
+
+/** An extension that can be added to a project as a tab */
+export interface Extension {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** An extension turned on for a project, with its setup */
+export interface Tab {
+  extension: string;
+  setup: any; // the extension's own (e.g. the Logs tab's Setup)
+}
+
+export interface TabInfo extends Tab {
+  title: string;
 }
 
 export interface Run {
