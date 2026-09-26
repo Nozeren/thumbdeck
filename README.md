@@ -51,24 +51,41 @@ tab) changes its setup, and removes it. `z` (or ⤢) expands the center to the w
   error to error, live tail, a line's full entry, and optional *sections* that fold a log into
   parts (a test, a request, a deploy step). Its setup says which folders and files to read.
 
-**Keys.** `?` lists them in the app.
+**Keys.** `?` lists them wherever you are. The status line at the bottom shows who has the
+keyboard (THUMBDECK, a tab, REVIEW), the project with its branch (↑ahead ↓behind, files
+changed), and thumbdeck's short messages.
 
 | key | |
 | --- | --- |
-| `j` / `k`, `gg` / `G` | next / previous project, first / last |
+| `j` / `k`, `g` / `G` | next / previous project, first / last |
 | `/` | filter projects (Enter opens the first match) |
 | `p` / `x` | pin / hide the project |
-| Enter | open the project in tmux |
+| Enter or `o` | open the project in tmux |
 | Space, then a letter | run a Toolkit button (the letters show on the buttons) |
 | `a` | add your own action |
 | `s` | stop the command shown |
 | `1`, `2`, … | the tabs at the bottom: README, the project's tabs, its runs |
-| `o`, `[` / `]` | README ↔ the latest run, previous / next run |
+| `]` / `[` | next / previous run |
 | `z` | expand the center / back |
 | Esc | close menus and forms, leave the filter |
 
-A tab you open (or click in) takes the keyboard, with keys of its own (`?` in the tab lists
-them); Esc gives the keyboard back to thumbdeck.
+A tab you open (or click in) takes the keyboard. Every tab follows the same rules:
+
+| key | in every tab |
+| --- | --- |
+| `j` `k` `g` `G` | move |
+| Enter or `l` | open, inside thumbdeck (a log, a conversation, a review) |
+| `h` or Backspace | back |
+| Tab / Shift+Tab | next / previous list (Agents: agents, skills, sessions; Git: changes, commits, branches) |
+| `v` | review the changes side by side (Git, Pull requests) |
+| `o` | open outside thumbdeck (a PR in the browser) |
+| `d` / `u` | scroll the lower part (a diff, details) |
+| `r` / `S` / `?` | refresh / set up the tab / its keys |
+| Esc or `q` | give the keyboard back to thumbdeck |
+
+On the review page: `n` / `N` next / previous change, `x` mark the file viewed (on to the next),
+`s` side by side ↔ one column, Esc back. `-` moves to the file list: `j` / `k` move, `l` or Enter
+opens the file, `h`, `-` or Esc go back to the changes.
 
 ## Install
 
@@ -122,8 +139,9 @@ Extensions are built in: one folder for the tab, one Rust module for its setup a
    needs; add it to `AVAILABLE` in `src-tauri/src/extensions/mod.rs`, and its commands to
    `lib.rs`.
 2. `src/lib/extensions/<name>/`: the tab and its setup form, Svelte components taking
-   `TabProps` / `SetupProps` (the tab also offers `handleKey`, for when it has the keyboard);
-   add them to `src/lib/extensions/index.ts`.
+   `TabProps` / `SetupProps` (the tab also offers `handleKey`, for when it has the keyboard,
+   and `keymap`, its keys for the key bar); add them to `src/lib/extensions/index.ts`. Its keys
+   go in `src/lib/keys/maps.ts`, following the rules there (`npm test` checks them).
 
 `logs` is the example to follow.
 

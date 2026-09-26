@@ -3,6 +3,7 @@
 // components, a module there with its setup and commands, and one line in each list.
 import type { Component } from "svelte";
 import type { ReviewRequest } from "../review/types.ts";
+import type { Keymap } from "../keys/keys.ts";
 import LogViewer from "./logs/LogViewer.svelte";
 import LogsSetup from "./logs/SetupForm.svelte";
 import AgentsTab from "./agents/AgentsTab.svelte";
@@ -38,6 +39,8 @@ export interface TabProps {
 export interface TabExports {
   /** A key while the tab has the keyboard; false when it isn't one of the tab's (Esc then gives the keyboard back) */
   handleKey(e: KeyboardEvent): boolean;
+  /** Its keys right now (for ? help, and its name in the status bar) */
+  keymap(): Keymap;
 }
 
 /** What every setup form is given */

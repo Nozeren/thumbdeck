@@ -8,6 +8,9 @@
   import type { Branches, Commit, Setup, Status } from "./types.ts";
   import { groupChanges, lineKind, refNames, stateWord, track, type FileRow } from "./format.ts";
   import { ago } from "../agents/format.ts";
+  import { actionFor } from "../../keys/keys.ts";
+  import { GIT } from "../../keys/maps.ts";
+  import KeyHelp from "../../keys/KeyHelp.svelte";
 
   let { path, setup, active, say, onActivate, onRelease, onEditSetup, openReview }: Omit<TabProps, "setup"> & { setup: Setup } = $props();
 
@@ -135,25 +138,27 @@
 
   let help = $state(false);
 
+  export const keymap = () => GIT;
+
   export function handleKey(e: KeyboardEvent): boolean {
     if (help) {
       help = false; // any key closes the help
       return true;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    switch (e.key) {
-      case "j": case "ArrowDown": move(cursor + 1); break;
-      case "k": case "ArrowUp": move(cursor - 1); break;
-      case "g": move(0); break;
-      case "G": move(rows.length - 1); break;
-      case "J": case "d": scrollDetail(1); break;
-      case "K": case "u": scrollDetail(-1); break;
-      case "a": showView(views[(views.indexOf(view) + 1) % views.length]); break;
-      case "Enter": case "l": reviewRow(); break;
-      case "r": load().then(() => loadDetail()); say("refreshed"); break;
-      case "S": onEditSetup(); break;
-      case "?": help = true; break;
-      case "q": onRelease(); break;
+    switch (actionFor(GIT, e)) {
+      case "down": move(cursor + 1); break;
+      case "up": move(cursor - 1); break;
+      case "first": move(0); break;
+      case "last": move(rows.length - 1); break;
+      case "open": case "review": reviewRow(); break;
+      case "next-list": showView(views[(views.indexOf(view) + 1) % views.length]); break;
+      case "previous-list": showView(views[(views.indexOf(view) + views.length - 1) % views.length]); break;
+      case "page-down": scrollDetail(1); break;
+      case "page-up": scrollDetail(-1); break;
+      case "refresh": load().then(() => loadDetail()); say("refreshed"); break;
+      case "setup": onEditSetup(); break;
+      case "help": help = true; break;
+      case "leave": onRelease(); break;
       default: return false;
     }
     return true;
@@ -234,20 +239,7 @@
 {/each}</pre>
   {/if}
 
-  {#if help}
-    <div class="overlay">
-      <strong>Git: keys</strong> <span class="dim">(any key closes this) · it only looks, it never changes the repo</span>
-      <dl>
-        <dt>a</dt><dd>next list: changes → commits → branches and stashes</dd>
-        <dt>j / k, g / G</dt><dd>down / up, first / last</dd>
-        <dt>Enter, l</dt><dd>review: all changes (at this file), the commit or the stash, side by side over the whole window</dd>
-        <dt>J / K, d / u</dt><dd>scroll the diff down / up</dd>
-        <dt>r</dt><dd>refresh (changes refresh every 3s on their own)</dd>
-        <dt>S</dt><dd>set up this tab</dd>
-        <dt>q, Esc</dt><dd>give the keyboard back to thumbdeck</dd>
-      </dl>
-    </div>
-  {/if}
+  {#if help}<KeyHelp map={GIT} note="it only looks, it never changes the repo" />{/if}
 </div>
 
 <style>
@@ -287,7 +279,4 @@
   .detail .hunk { color: var(--aqua); }
   .detail .meta { color: var(--grey); font-size: 12px; }
 
-  .overlay { position: absolute; inset: 0; background: var(--bg0); padding: 16px 20px; overflow: auto; z-index: 5; }
-  .overlay dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
-  .overlay dt { color: var(--orange); } .overlay dd { margin: 0; }
 </style>

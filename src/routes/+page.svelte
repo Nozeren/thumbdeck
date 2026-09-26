@@ -8,6 +8,9 @@
   import { extensions, type TabExports } from "$lib/extensions";
   import Avatar from "$lib/avatar/Avatar.svelte";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
+  import StatusBar from "$lib/StatusBar.svelte";
+  import { actionFor, keysLabel } from "$lib/keys/keys";
+  import { DIALOG, FILTER, MAIN, REVIEW, TOOLKIT } from "$lib/keys/maps";
   import type { ReviewRequest } from "$lib/review/types";
   import { pickMood } from "$lib/avatar/mood";
   import { avatarSignals } from "$lib/avatar/signals.svelte";
@@ -26,7 +29,7 @@
   function say(text: string, error = false) {
     toast = { text, error };
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast = null), 3500);
+    toastTimer = setTimeout(() => (toast = null), error ? 8000 : 4000); // shown in the status bar
   }
 
   async function openInTmux() {
@@ -93,7 +96,6 @@
   // ------------------------------------------------------------ keyboard
   let hints = $state(false); // Space pressed: Toolkit buttons show their letters
   let helpOpen = $state(false);
-  let pendingG = false; // first g of gg
   let filterEl = $state<HTMLInputElement | null>(null);
   const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
 
@@ -172,6 +174,7 @@
       if (typing) (e.target as HTMLElement).blur();
       return;
     }
+    if (helpOpen && e.key === "?") return void (helpOpen = false);
     if (typing || dialog || e.ctrlKey || e.metaKey || e.altKey) return;
 
     if (hints) {
@@ -182,24 +185,20 @@
       if (i >= 0 && a) run(a);
       return;
     }
-    const wasG = pendingG;
-    pendingG = false;
-    switch (e.key) {
-      case " ": hints = (details?.actions.length ?? 0) > 0; break;
-      case "j": move(1); break;
-      case "k": move(-1); break;
-      case "g": if (wasG) move("first"); else pendingG = true; break;
-      case "G": move("last"); break;
-      case "/": filterEl?.focus(); break;
-      case "p": if (selected) edit("pin", selected.path); break;
-      case "x": if (selected) edit("remove", selected.path); break;
-      case "a": if (selected) openForm(); break;
-      case "s": if (current && current.endedAt === null) stop(current); break;
-      case "o": if (shownRun === null) { const last = runTabs.at(-1); if (last) showRun(last.id); } else showTab(null); break;
-      case "[": cycleRuns(-1); break;
-      case "]": cycleRuns(1); break;
-      case "?": helpOpen = !helpOpen; break;
-      case "Enter": openInTmux(); break;
+    switch (actionFor(MAIN, e)) {
+      case "toolkit": hints = (details?.actions.length ?? 0) > 0; break;
+      case "down": move(1); break;
+      case "up": move(-1); break;
+      case "first": move("first"); break;
+      case "last": move("last"); break;
+      case "filter": filterEl?.focus(); break;
+      case "pin": if (selected) edit("pin", selected.path); break;
+      case "remove": if (selected) edit("remove", selected.path); break;
+      case "add": if (selected) openForm(); break;
+      case "stop": if (current && current.endedAt === null) stop(current); break;
+      case "run": cycleRuns(e.key === "[" ? -1 : 1); break;
+      case "help": helpOpen = !helpOpen; break;
+      case "outside": openInTmux(); break;
       default: return;
     }
     e.preventDefault();
@@ -293,6 +292,21 @@
 
   // ------------------------------------------------------------ the avatar (top bar)
   let review = $state<ReviewRequest | null>(null); // the review page, over everything
+  let filtering = $state(false); // the filter box has the keyboard
+
+  // The selected project's branch and uncommitted files, for the status bar (looked at every 5s)
+  let branchState = $state<{ name: string | null; ahead: number; behind: number; gone: boolean; changed: number } | null>(null);
+  $effect(() => {
+    const path = selected?.path;
+    if (!path) return void (branchState = null);
+    const look = () =>
+      invoke<{ branch: { name: string | null; ahead: number; behind: number; gone: boolean }; changes: unknown[] }>("git_status", { path })
+        .then((s) => (branchState = { ...s.branch, changed: s.changes.length }))
+        .catch(() => (branchState = null)); // not a git repo
+    look();
+    const timer = setInterval(() => !document.hidden && look(), 5000);
+    return () => clearInterval(timer);
+  });
   let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean } | null>(null);
   let avatar = $state(""); // the character (settings); "none": no character
   let avatarRef = $state<{ pickCharacter(): void } | null>(null);
@@ -390,6 +404,15 @@
   }
   // An extension tab is in the center (not the README or a run's output)
   const tabShown = $derived(shownRun === null && shownTab !== null && !!details?.tabs[shownTab]);
+  /** Who has the keyboard, for the status bar at the bottom */
+  const barKeys = $derived(
+    review ? REVIEW
+    : form || setupForm || helpOpen || updateDialog ? DIALOG
+    : filtering ? FILTER
+    : hints ? TOOLKIT
+    : keysToTab && tabShown && tabRef ? tabRef.keymap()
+    : MAIN,
+  );
   // Toolkit grouped by where each action came from: yours, then one group per pack
   const groups = $derived.by(() => {
     const byGroup = new Map<string, Action[]>();
@@ -503,7 +526,8 @@
         <button class="update-dot" title="thumbdeck {update.version} is available" onclick={() => (updateDialog = true)}>● {update.version}</button>
       {/if}
     </header>
-    <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey} />
+    <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey}
+           onfocus={() => (filtering = true)} onblur={() => (filtering = false)} />
     <section class="card helm">
       <h2>
         <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
@@ -714,9 +738,8 @@
   </aside>
 </main>
 
-{#if toast}
-  <div class="toast" class:error={toast.error}>{toast.text}</div>
-{/if}
+
+<StatusBar mode={barKeys.name} project={selected?.name ?? null} branch={branchState} message={toast} />
 
 {#if review}
   <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} />
@@ -727,20 +750,9 @@
     <div class="dialog help">
       <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
       <dl>
-        <dt>j / k</dt><dd>next / previous project</dd>
-        <dt>1, 2…</dt><dd>the tabs at the bottom: README, the project's tabs (they take the keyboard; Esc gives it back), its runs</dd>
-        <dt>z</dt><dd>expand the center to the whole window / back</dd>
-        <dt>Enter</dt><dd>open the project in tmux (its own session: Neovim + a shell)</dd>
-        <dt>gg / G</dt><dd>first / last project</dd>
-        <dt>/</dt><dd>filter projects (Enter opens the first match)</dd>
-        <dt>p</dt><dd>pin / unpin project</dd>
-        <dt>x</dt><dd>hide project</dd>
-        <dt>Space, letter</dt><dd>run a Toolkit button</dd>
-        <dt>a</dt><dd>add your own action</dd>
-        <dt>s</dt><dd>stop the command shown</dd>
-        <dt>o</dt><dd>README ↔ the latest run</dd>
-        <dt>[ / ]</dt><dd>previous / next run tab (× on a tab closes it; the command keeps running)</dd>
-        <dt>Esc</dt><dd>close menus, forms, this help; leave the filter</dd>
+        {#each MAIN.bindings as b}<dt>{keysLabel(b)}</dt><dd>{b.does}</dd>{/each}
+        <dt>in a tab</dt><dd>the same keys mean the same things: j k g G move, Enter / l open, h back, Tab next list,
+          v review, o open outside, d / u scroll, r refresh, S setup, ? its keys, Esc or q give the keyboard back</dd>
       </dl>
     </div>
   </div>
@@ -824,7 +836,7 @@
   /* invisible strip along the top to move the window by (macOS has no title bar here) */
   .drag { position: fixed; inset: 0 0 auto 0; height: 8px; z-index: 10; }
   main.mac .app { padding-top: 26px; }
-  main { display: grid; grid-template-columns: 250px 1fr 340px; gap: 8px; height: 100vh; padding: 8px; }
+  main { display: grid; grid-template-columns: 250px 1fr 340px; gap: 8px; height: calc(100vh - 22px); padding: 8px; } /* 22px: the status bar */
   main.wide { grid-template-columns: 1fr; }
   main.wide > .left, main.wide > .right { display: none; }
   .panel { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -952,8 +964,6 @@
   .avatar.custom { background: var(--yellow); }
   .tab.open { color: var(--green); }
   .tab.open:hover { background: var(--bg2); }
-  .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; padding: 8px 16px; border-radius: 10px; background: var(--bg1); border: 1px solid var(--green); font: 12.5px var(--mono); box-shadow: 0 8px 24px #0008; }
-  .toast.error { border-color: var(--red); color: var(--red); }
   .hint-key { min-width: 16px; padding: 0 4px; border-radius: 4px; text-align: center; background: var(--orange); color: var(--bg0); font-weight: 700; }
   .hint-note { font: 400 11px var(--mono); color: var(--orange); }
   .help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }

@@ -19,6 +19,10 @@ The user reads everything in plain English; the README is the user-facing docume
   `extensions/mod.rs` and `src/lib/extensions/index.ts`. `logs/` (log viewer), `agents/`
   (Claude Code sessions from `~/.claude/projects/<path with non-alphanumerics as ->/`, subagents
   in `<session>/subagents/agent-<id>.jsonl` + `.meta.json`; undocumented format: read defensively)
+- `src/lib/keys/`: every place's keys in `maps.ts` (handlers switch on its actions; the ? help
+  is drawn from it); `RULES` in `keys.ts` (a key means the same everywhere) is checked by
+  `npm test`. `src/lib/StatusBar.svelte`: the bottom line (who has the keyboard, branch, messages)
+- `src/lib/review/`: the review page (diff parsing in `diff.ts`), opened by Git and PR tabs
 - `src/routes/+page.svelte`: the whole page (keys in `onKey`, help dialog, styles; shared dialog
   and button styles are `:global` there)
 
@@ -40,8 +44,8 @@ from real files first.
 - Drive it (Hyprland) only through the dev window, found by its process (`target/debug/thumbdeck`),
   never the installed app (`~/.local/bin/thumbdeck`): `hyprctl dispatch sendshortcut ", <key>, address:<addr>"`;
   screenshot with `alterzorder top` then `grim -g`, and `alterzorder bottom` after.
-- Never send Enter unless a button has keyboard focus: Enter opens the project in the user's
-  real tmux. Space + letter runs Toolkit buttons; number keys switch tabs.
+- Never send Enter or `o` on the main page unless a button has keyboard focus: they open the
+  project in the user's real tmux. Space + letter runs Toolkit buttons; number keys switch tabs.
 - An unstyled page in dev is vite's stuck CSS cache (it serves the raw .svelte source as the
   CSS): `touch src/routes/+page.svelte`, and if that doesn't help, restart `npm run tauri dev`.
 - Keep screenshots and command output few and small; they fill the context fast.

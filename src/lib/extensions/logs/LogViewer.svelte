@@ -3,6 +3,9 @@
   // with levels, search, error jumps, live tail, optional sections and a detail view of one
   // entry. Keys come through handleKey() while the tab has the keyboard.
   import { invoke } from "@tauri-apps/api/core";
+  import { actionFor } from "../../keys/keys.ts";
+  import { LOGS, LOGS_ENTRY, LOGS_FILES, LOGS_LEVELS } from "../../keys/maps.ts";
+  import KeyHelp from "../../keys/KeyHelp.svelte";
   import { avatarSignals } from "../../avatar/signals.svelte.ts";
   import { tick } from "svelte";
   import type { Log, LogFile, Setup, Summary } from "./types.ts";
@@ -281,13 +284,13 @@
       detailCursor = Math.max(0, Math.min(detailRows.length - 1, i));
       document.getElementById(`log-detail-${detailCursor}`)?.scrollIntoView({ block: "nearest" });
     };
-    switch (e.key) {
-      case "j": case "ArrowDown": move(detailCursor + 1); break;
-      case "k": case "ArrowUp": move(detailCursor - 1); break;
-      case "g": move(0); break;
-      case "G": move(detailRows.length - 1); break;
-      case "l": case "Enter": case " ": toggleDetail(detailCursor); break;
-      case "h": {
+    switch (actionFor(LOGS_ENTRY, e)) {
+      case "down": move(detailCursor + 1); break;
+      case "up": move(detailCursor - 1); break;
+      case "first": move(0); break;
+      case "last": move(detailRows.length - 1); break;
+      case "open": toggleDetail(detailCursor); break;
+      case "close": {
         if (r?.container && r.open) toggleDetail(detailCursor);
         else {
           const depth = r?.depth ?? 0;
@@ -295,9 +298,12 @@
         }
         break;
       }
-      case "y": if (r) copy(copyText(r.value), `the value of '${r.key}'`); break;
-      case "Y": if (detail !== null && log) copy(JSON.stringify(log.lines[detail].data, null, 2), "the full entry"); break;
-      case "q": case "Escape": detail = null; break;
+      case "copy":
+        if (e.key === "Y") {
+          if (detail !== null && log) copy(JSON.stringify(log.lines[detail].data, null, 2), "the full entry");
+        } else if (r) copy(copyText(r.value), `the value of '${r.key}'`);
+        break;
+      case "leave": detail = null; break;
       default: return false;
     }
     return true;
@@ -307,60 +313,69 @@
   let help = $state(false);
 
   /** A key while the tab has the keyboard; false when it isn't one of the tab's */
+  /** f was pressed: the next key picks a level */
+  let levels = $state(false);
+
+  /** Its keys right now: the files, a log, a line's entry, or picking levels */
+  export function keymap() {
+    return detail !== null ? LOGS_ENTRY : !log ? LOGS_FILES : levels ? LOGS_LEVELS : LOGS;
+  }
+
   export function handleKey(e: KeyboardEvent): boolean {
     if (help) {
       help = false; // any key closes the help
       return true;
     }
-    if (e.key === "?") return (help = true);
-    if (e.key === "S" && detail === null) return (onEditSetup(), true);
+    const map = keymap();
+    const action = actionFor(map, e);
+    if (action === "help") return (help = true);
+    if (action === "setup") return (onEditSetup(), true);
     if (detail !== null) return detailKey(e);
     if (!log) return listKey(e);
+    if (levels) {
+      levels = false;
+      if (action === "all") (hidden = new Set()), say("all levels visible");
+      else if (action && action !== "leave") toggleLevel(action);
+      return true;
+    }
 
     const r = list[cursor];
     const page = Math.max(1, Math.floor(height / ROW));
-    if (e.ctrlKey) {
-      const by = { d: page / 2, u: -page / 2, f: page, b: -page }[e.key];
-      if (by === undefined) return false;
-      setCursor(cursor + Math.trunc(by));
-      return true;
-    }
-    if (e.metaKey || e.altKey) return false;
-    switch (e.key) {
-      case "j": case "ArrowDown": setCursor(cursor + 1); break;
-      case "k": case "ArrowUp": setCursor(cursor - 1); break;
-      case "l": case "ArrowRight": case "Enter": case " ":
+    switch (action) {
+      case "down": setCursor(cursor + 1); break;
+      case "up": setCursor(cursor - 1); break;
+      case "first": if (log.lines.length) reveal(0); break;
+      case "last": if (log.lines.length) reveal(log.lines.length - 1); break;
+      case "page-down": setCursor(cursor + Math.trunc(page / 2)); break;
+      case "page-up": setCursor(cursor - Math.trunc(page / 2)); break;
+      case "full-down": setCursor(cursor + page); break;
+      case "full-up": setCursor(cursor - page); break;
+      case "open":
         if (r?.type === "block") toggle(r);
         else if (r) showDetail(r.line);
         break;
-      case "h": case "ArrowLeft":
+      case "close":
         if (r?.type === "block" && r.open) toggle(r);
         else {
           const p = parentIndex(list, cursor);
           if (p !== null) setCursor(p);
         }
         break;
-      case "g": if (log.lines.length) reveal(0); break;
-      case "G": if (log.lines.length) reveal(log.lines.length - 1); break;
-      case "e": jumpTo(1, (l) => l.level === "ERROR", "no ERROR lines"); break;
-      case "E": jumpTo(-1, (l) => l.level === "ERROR", "no ERROR lines"); break;
-      case "/": searching = true; query = ""; tick().then(() => searchEl?.focus()); break;
-      case "n": goToMatch(1); break;
-      case "N": goToMatch(-1); break;
-      case "t": tailing = !tailing; say(`live tail ${tailing ? "on" : "off"}`); break;
-      case "d": toggleLevel("DEBUG"); break;
-      case "i": toggleLevel("INFO"); break;
-      case "w": toggleLevel("WARNING"); break;
-      case "r": toggleLevel("ERROR"); break;
-      case "a": hidden = new Set(); say("all levels visible"); break;
-      case "y":
-        if (r?.type === "line") copy(log.lines[r.line].message, "the message");
+      case "error": jumpTo(e.key === "E" ? -1 : 1, (l) => l.level === "ERROR", "no ERROR lines"); break;
+      case "search": searching = true; query = ""; tick().then(() => searchEl?.focus()); break;
+      case "match": goToMatch(e.key === "N" ? -1 : 1); break;
+      case "tail": tailing = !tailing; say(`live tail ${tailing ? "on" : "off"}`); break;
+      case "levels": levels = true; break;
+      case "copy":
+        if (e.key === "Y") {
+          if (r?.type === "line") copy(JSON.stringify(log.lines[r.line].data), "the JSON");
+        } else if (r?.type === "line") copy(log.lines[r.line].message, "the message");
         else if (r) copy(r.node.name, "the title");
         break;
-      case "Y": if (r?.type === "line") copy(JSON.stringify(log.lines[r.line].data), "the JSON"); break;
-      case "-": case "q": backToList(); break;
-      case "Escape":
-        if (!status) return false; // nothing to close: give the keyboard back
+      case "refresh": reload(); break;
+      case "back": backToList(); break;
+      case "leave":
+        if (!status) onRelease(); // nothing to close: give the keyboard back
         status = "";
         break;
       default: return false;
@@ -369,14 +384,14 @@
   }
 
   function listKey(e: KeyboardEvent): boolean {
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    switch (e.key) {
-      case "j": case "ArrowDown": moveList(listCursor + 1); break;
-      case "k": case "ArrowUp": moveList(listCursor - 1); break;
-      case "g": moveList(0); break;
-      case "G": moveList(files.length - 1); break;
-      case "l": case "Enter": if (files[listCursor]) openLog(files[listCursor]); break;
-      case "q": onRelease(); break;
+    switch (actionFor(LOGS_FILES, e)) {
+      case "down": moveList(listCursor + 1); break;
+      case "up": moveList(listCursor - 1); break;
+      case "first": moveList(0); break;
+      case "last": moveList(files.length - 1); break;
+      case "open": if (files[listCursor]) openLog(files[listCursor]); break;
+      case "refresh": refreshList(); break;
+      case "leave": onRelease(); break;
       default: return false;
     }
     return true;
@@ -482,7 +497,7 @@
       <header class="bar">
         <strong>line {detail + 1}: full entry</strong>
         <span class="spacer"></span>
-        <span class="dim">y value · Y all · q close</span>
+        <span class="dim">y value · Y all · Esc close</span>
       </header>
       <div class="json">
         {#each detailRows as d, i (d.path)}
@@ -498,26 +513,7 @@
     </div>
   {/if}
 
-  {#if help}
-    <div class="overlay help">
-      <strong>Logs: keys</strong> <span class="dim">(any key closes this)</span>
-      <dl>
-        <dt>j / k</dt><dd>down / up</dd>
-        <dt>h / l</dt><dd>close / open a section (h on a line: its section)</dd>
-        <dt>g / G</dt><dd>first / last line</dd>
-        <dt>ctrl d u f b</dt><dd>half / full page down / up</dd>
-        <dt>e / E</dt><dd>next / previous ERROR</dd>
-        <dt>Enter, Space</dt><dd>on a line: its full entry; on a section: open / close</dd>
-        <dt>y / Y</dt><dd>copy the message (section: its title) / the entry as JSON</dd>
-        <dt>/ , n / N</dt><dd>search, next / previous match</dd>
-        <dt>t</dt><dd>live tail</dd>
-        <dt>d i w r / a</dt><dd>show / hide DEBUG INFO WARNING ERROR / show all</dd>
-        <dt>- or q</dt><dd>back to the files (in the files: give keys back)</dd>
-        <dt>S</dt><dd>set up this tab (folders, how lines are read, sections)</dd>
-        <dt>Esc</dt><dd>close; give the keyboard back to thumbdeck</dd>
-      </dl>
-    </div>
-  {/if}
+  {#if help}<KeyHelp map={keymap()} />{/if}
 </div>
 
 <style>
@@ -575,6 +571,4 @@
   .full { flex: 1 1 40%; min-height: 0; overflow: auto; margin: 0; padding: 10px 14px; border-top: 1px solid var(--bg2);
           white-space: pre-wrap; word-break: break-word; font: 12.5px/1.45 var(--mono); }
   .help { padding: 16px 20px; overflow: auto; }
-  .help dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
-  .help dt { color: var(--orange); } .help dd { margin: 0; }
 </style>

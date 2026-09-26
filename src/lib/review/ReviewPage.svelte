@@ -7,6 +7,9 @@
   import type { ReviewRequest } from "./types.ts";
   import { parseDiff, splitRows, unifiedRows, wordDiff, type DiffFile, type Line, type Row, type Segment } from "./diff.ts";
   import { languageFor, lineHtml } from "./highlight.ts";
+  import { actionFor } from "../keys/keys.ts";
+  import { REVIEW, REVIEW_FILES } from "../keys/maps.ts";
+  import KeyHelp from "../keys/KeyHelp.svelte";
 
   let { request, onClose }: { request: ReviewRequest; onClose: () => void } = $props();
 
@@ -82,6 +85,37 @@
     }
   }
 
+  // ------------------------------------------------------------ the file list (after -)
+  /** Where the keyboard is: the changes, or the file list */
+  let focus = $state<"diff" | "files">("diff");
+  let fileCursor = $state(0);
+
+  /** - from the changes: the list, the cursor on the shown file */
+  function toFiles() {
+    focus = "files";
+    fileCursor = current;
+  }
+
+  function moveFile(to: number) {
+    fileCursor = Math.max(0, Math.min(files.length - 1, to));
+    tick().then(() => document.getElementById(`rv-file-${fileCursor}`)?.scrollIntoView({ block: "nearest" }));
+  }
+
+  function filesKey(e: KeyboardEvent): boolean {
+    switch (actionFor(REVIEW_FILES, e)) {
+      case "down": moveFile(fileCursor + 1); break;
+      case "up": moveFile(fileCursor - 1); break;
+      case "first": moveFile(0); break;
+      case "last": moveFile(files.length - 1); break;
+      case "open": focus = "diff"; showFile(fileCursor); break;
+      case "viewed": toggleViewed(files[fileCursor], false); break;
+      case "help": help = true; break;
+      case "leave": focus = "diff"; break;
+      default: return false;
+    }
+    return true;
+  }
+
   // ------------------------------------------------------------ the shown file
   const file = $derived<DiffFile | undefined>(files[current]);
   const lang = $derived(file ? languageFor(file.path) : null);
@@ -124,33 +158,35 @@
 
   let help = $state(false);
 
+  export const keymap = () => (focus === "files" ? REVIEW_FILES : REVIEW);
+
   export function handleKey(e: KeyboardEvent): boolean {
     if (help) {
       help = false; // any key closes the help
       return true;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (focus === "files") return filesKey(e);
     const page = (diffEl?.clientHeight ?? 400) * 0.8;
-    switch (e.key) {
-      case "j": case "ArrowDown": diffEl?.scrollBy({ top: 54 }); break;
-      case "k": case "ArrowUp": diffEl?.scrollBy({ top: -54 }); break;
-      case "d": case "PageDown": case " ": diffEl?.scrollBy({ top: page }); break;
-      case "u": case "PageUp": diffEl?.scrollBy({ top: -page }); break;
-      case "g": diffEl?.scrollTo({ top: 0 }); break;
-      case "G": diffEl?.scrollTo({ top: diffEl.scrollHeight }); break;
-      case "]": case "c": jumpChange(1); break;
-      case "[": case "C": jumpChange(-1); break;
-      case "n": case "J": case "ArrowRight": showFile(current + 1); break;
-      case "p": case "K": case "ArrowLeft": showFile(current - 1); break;
-      case "v": toggleViewed(file); break;
-      case "s": split = !split; break;
-      case "r": load(); break;
-      case "?": help = true; break;
-      case "q": case "Escape": onClose(); break;
+    const back = e.key === "N";
+    switch (actionFor(REVIEW, e)) {
+      case "down": diffEl?.scrollBy({ top: 54 }); break;
+      case "up": diffEl?.scrollBy({ top: -54 }); break;
+      case "page-down": diffEl?.scrollBy({ top: page }); break;
+      case "page-up": diffEl?.scrollBy({ top: -page }); break;
+      case "first": diffEl?.scrollTo({ top: 0 }); break;
+      case "last": diffEl?.scrollTo({ top: diffEl.scrollHeight }); break;
+      case "change": jumpChange(back ? -1 : 1); break;
+      case "files": toFiles(); break;
+      case "viewed": toggleViewed(file); break;
+      case "split": split = !split; break;
+      case "refresh": load(); break;
+      case "help": help = true; break;
+      case "leave": onClose(); break;
       default: return false;
     }
     return true;
   }
+
 
   const totals = $derived(files.reduce((t, f) => ({ add: t.add + f.additions, del: t.del + f.deletions }), { add: 0, del: 0 }));
   const statusLetter = { modified: "M", added: "A", deleted: "D", renamed: "R" } as const;
@@ -176,10 +212,11 @@
   </header>
 
   <div class="body">
-    <nav class="files">
+    <nav class="files" class:focused={focus === "files"}>
       <div class="progress"><span style="width: {files.length ? (viewedCount / files.length) * 100 : 0}%"></span></div>
       {#each files as f, i}
-        <button id="rv-file-{i}" class="file" class:on={i === current} class:seen={isViewed(f)} onclick={() => showFile(i)}>
+        <button id="rv-file-{i}" class="file" class:on={i === current} class:cursor={focus === "files" && i === fileCursor}
+                class:seen={isViewed(f)} onclick={() => ((focus = "diff"), showFile(i))}>
           <span class="st {f.status}">{statusLetter[f.status]}</span>
           <span class="name"><span class="dir">{dirOf(f.path)}</span>{nameOf(f.path)}</span>
           <span class="counts"><span class="plus">{f.additions ? `+${f.additions}` : ""}</span> <span class="minus">{f.deletions ? `−${f.deletions}` : ""}</span></span>
@@ -202,7 +239,7 @@
           {#if file.oldPath}<span class="dim">← {file.oldPath}</span>{/if}
           <span class="spacer"></span>
           <span class="dim">{current + 1} / {files.length}</span>
-          <label class="viewed"><input type="checkbox" checked={isViewed(file)} onchange={() => toggleViewed(file, false)} /> Viewed <span class="dim">v</span></label>
+          <label class="viewed"><input type="checkbox" checked={isViewed(file)} onchange={() => toggleViewed(file, false)} /> Viewed <span class="dim">x</span></label>
         </header>
         <div class="scroll" bind:this={diffEl}>
           {#if file.binary}
@@ -233,24 +270,11 @@
     </section>
   </div>
 
-  {#if help}
-    <div class="overlay">
-      <strong>Review: keys</strong> <span class="dim">(any key closes this) · read-only</span>
-      <dl>
-        <dt>n / p (→ / ←)</dt><dd>next / previous file</dd>
-        <dt>] / [ (or c / C)</dt><dd>next / previous change (past the last: the next file)</dd>
-        <dt>j / k, d / u, g / G</dt><dd>scroll a little / a page, top / bottom</dd>
-        <dt>v</dt><dd>mark the file viewed and go to the next one (remembered until its changes change)</dd>
-        <dt>s</dt><dd>side by side ↔ one column</dd>
-        <dt>r</dt><dd>read the changes again</dd>
-        <dt>q, Esc</dt><dd>back</dd>
-      </dl>
-    </div>
-  {/if}
+  {#if help}<KeyHelp map={keymap()} note="read-only" />{/if}
 </div>
 
 <style>
-  .review { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--bg0); font: 12.5px var(--mono);
+  .review { position: fixed; inset: 0 0 22px 0; /* the status bar stays visible below */ z-index: 50; display: flex; flex-direction: column; background: var(--bg0); font: 12.5px var(--mono);
             --add-bg: color-mix(in srgb, var(--green) 14%, transparent); --del-bg: color-mix(in srgb, var(--red) 14%, transparent);
             --add-mark: color-mix(in srgb, var(--green) 38%, transparent); --del-mark: color-mix(in srgb, var(--red) 38%, transparent); }
   .top { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--bg2); white-space: nowrap; }
@@ -275,6 +299,10 @@
   .file:hover { background: var(--bg1); }
   .file.on { background: var(--bg2); box-shadow: inset 2px 0 var(--orange); }
   .file.seen .name { color: var(--grey); }
+  .files.focused { box-shadow: inset 0 2px var(--orange); }
+  .files.focused .file.cursor { background: var(--bg2); box-shadow: inset 2px 0 var(--orange); }
+  .files.focused .file.on:not(.cursor) { background: none; box-shadow: none; }
+
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dir { color: var(--grey); }
   .counts { flex: none; font-size: 11px; }
@@ -313,7 +341,4 @@
   code :global(.hljs-attr), code :global(.hljs-attribute), code :global(.hljs-property), code :global(.hljs-variable) { color: var(--blue); }
   code :global(.hljs-meta), code :global(.hljs-tag), code :global(.hljs-params) { color: var(--aqua); }
 
-  .overlay { position: absolute; inset: 0; background: var(--bg0); padding: 20px 26px; overflow: auto; z-index: 5; }
-  .overlay dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px 18px; }
-  .overlay dt { color: var(--orange); } .overlay dd { margin: 0; }
 </style>

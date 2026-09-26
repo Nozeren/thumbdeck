@@ -7,6 +7,9 @@
   import { tick } from "svelte";
   import type { TabProps } from "../index.ts";
   import type { AgentList, Defined, Entry, Session, Setup, Skill, Subagent } from "./types.ts";
+  import { actionFor } from "../../keys/keys.ts";
+  import { AGENTS_LIST, AGENTS_START, AGENTS_TRANSCRIPT } from "../../keys/maps.ts";
+  import KeyHelp from "../../keys/KeyHelp.svelte";
   import { ago, money, shortModel, tokensLine, toolSummary, uses } from "./format.ts";
 
   let { path, project, setup, active, say, onActivate, onRelease, onEditSetup }: Omit<TabProps, "setup"> & { setup: Setup } = $props();
@@ -186,40 +189,57 @@
   // ------------------------------------------------------------ keys
   let help = $state(false);
 
+  /** Its keys right now: the lists, a conversation, or an agent or skill to start */
+  export function keymap() {
+    return open?.kind === "transcript" ? AGENTS_TRANSCRIPT : open ? AGENTS_START : AGENTS_LIST;
+  }
+
+  function cycle(by: number) {
+    showSection(sections[(sections.indexOf(section) + by + sections.length) % sections.length]);
+  }
+
   export function handleKey(e: KeyboardEvent): boolean {
     if (help) {
       help = false; // any key closes the help
       return true;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    if (e.key === "?") return (help = true);
-    if (e.key === "S") return (onEditSetup(), true);
+    const action = actionFor(keymap(), e);
+    if (action === "help") return (help = true);
+    if (action === "setup") return (onEditSetup(), true);
+    if (action === "leave") return (onRelease(), true);
     if (open?.kind === "transcript") {
-      switch (e.key) {
-        case "j": case "ArrowDown": moveEntry(entryCursor + 1); break;
-        case "k": case "ArrowUp": moveEntry(entryCursor - 1); break;
-        case "g": moveEntry(0); break;
-        case "G": moveEntry(entries.length - 1); break;
-        case "l": case "Enter": case " ": openEntry(entryCursor); break;
-        case "-": case "q": case "h": back(); break;
-        case "Escape": return false;
+      const page = Math.max(1, Math.floor((scroller?.clientHeight ?? 400) / 60));
+      switch (action) {
+        case "down": moveEntry(entryCursor + 1); break;
+        case "up": moveEntry(entryCursor - 1); break;
+        case "first": moveEntry(0); break;
+        case "last": moveEntry(entries.length - 1); break;
+        case "page-down": moveEntry(entryCursor + page); break;
+        case "page-up": moveEntry(entryCursor - page); break;
+        case "open": openEntry(entryCursor); break;
+        case "back": back(); break;
+        case "refresh": loadEntries(); break;
         default: return false;
       }
       return true;
     }
-    if (open?.kind === "defined" || open?.kind === "skill") {
-      if (["-", "q", "h"].includes(e.key)) return (back(), true);
-      if (e.key === "i" || e.key === "Enter") return (taskBox?.focus(), e.preventDefault(), true);
-      return false;
+    if (open) {
+      switch (action) {
+        case "type": e.preventDefault(); taskBox?.focus(); break;
+        case "back": back(); break;
+        default: return false;
+      }
+      return true;
     }
-    switch (e.key) {
-      case "j": case "ArrowDown": move(cursor + 1); break;
-      case "k": case "ArrowUp": move(cursor - 1); break;
-      case "g": move(0); break;
-      case "G": move(count - 1); break;
-      case "l": case "Enter": openRow(cursor); break;
-      case "a": showSection(sections[(sections.indexOf(section) + 1) % sections.length]); break;
-      case "q": onRelease(); break;
+    switch (action) {
+      case "down": move(cursor + 1); break;
+      case "up": move(cursor - 1); break;
+      case "first": move(0); break;
+      case "last": move(count - 1); break;
+      case "open": openRow(cursor); break;
+      case "next-list": cycle(1); break;
+      case "previous-list": cycle(-1); break;
+      case "refresh": refresh(); break;
       default: return false;
     }
     return true;
@@ -312,7 +332,7 @@
         Skills <span class="dim">{data?.skills.length ?? ""}</span></button>
       <button class="seg" class:on={section === "sessions"} onclick={() => showSection("sessions")}>
         Sessions <span class="dim">{data?.sessions.length ?? ""}</span></button>
-      <span class="dim">a switches</span>
+      <span class="dim">Tab switches</span>
       <span class="spacer"></span>
       <button class="tool" title="Set up this tab (S)" onclick={onEditSetup}>⚙ setup</button>
     </header>
@@ -377,22 +397,7 @@
     </ul>
   {/if}
 
-  {#if help}
-    <div class="overlay">
-      <strong>Agents: keys</strong> <span class="dim">(any key closes this)</span>
-      <dl>
-        <dt>j / k, g / G</dt><dd>down / up, first / last</dd>
-        <dt>a</dt><dd>next list: agents → skills → sessions</dd>
-        <dt>l, Enter</dt><dd>open an agent or skill (its details and a task box), or a session or subagent (its conversation)</dd>
-        <dt>task box</dt><dd>Enter starts Claude Code on the task in the project's "claude" tmux window and shows it; Esc goes back</dd>
-        <dt>i</dt><dd>on an agent or skill: back to the task box</dd>
-        <dt>in a conversation</dt><dd>Enter on a tool call: its input and result; on ◇ Agent: that subagent's conversation</dd>
-        <dt>- or q or h</dt><dd>back (in the list, q gives the keyboard back)</dd>
-        <dt>S</dt><dd>set up this tab</dd>
-        <dt>Esc</dt><dd>give the keyboard back to thumbdeck</dd>
-      </dl>
-    </div>
-  {/if}
+  {#if help}<KeyHelp map={keymap()} />{/if}
 </div>
 
 <style>
@@ -452,7 +457,4 @@
   .hint { font-size: 11.5px; margin: 0 0 10px; }
   .instructions { margin-top: 12px; padding: 10px 12px; background: var(--bg-dim); border-radius: 8px; white-space: pre-wrap; font: 12.5px var(--mono); }
 
-  .overlay { position: absolute; inset: 0; background: var(--bg0); padding: 16px 20px; overflow: auto; z-index: 5; }
-  .overlay dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
-  .overlay dt { color: var(--orange); } .overlay dd { margin: 0; }
 </style>
