@@ -121,6 +121,13 @@ pub fn run_in_window(path: &str, name: &str, window: &str, command: &str) -> Res
     Ok(format!("started in tmux: {session} › {window}"))
 }
 
+/// Show a window of the project's tmux session in the terminal (switching to the session first)
+pub fn open_window(path: &str, name: &str, window: &str) -> Result<String, String> {
+    let message = open(path, name)?;
+    let _ = tmux(&["select-window", "-t", &format!("={}:{window}", session_name(name))]);
+    Ok(message)
+}
+
 /// Whether a pane's current command is a shell waiting at its prompt
 fn is_shell(command: &str) -> bool {
     let command = command.trim_start_matches('-'); // login shells: "-zsh"

@@ -3,6 +3,7 @@
 //! here (its setup and commands) and a folder in src/lib/extensions (its tab and setup form),
 //! listed in AVAILABLE and in src/lib/extensions/index.ts.
 
+pub mod agents;
 pub mod logs;
 
 use serde::de::DeserializeOwned;
@@ -21,12 +22,20 @@ pub struct Extension {
 }
 
 /// Every extension this thumbdeck has
-pub const AVAILABLE: &[Extension] = &[Extension {
-    id: "logs",
-    name: "Logs",
-    description: "The project's log files: levels, search, errors, live tail, optional sections",
-    setup: complete_setup::<logs::Setup>,
-}];
+pub const AVAILABLE: &[Extension] = &[
+    Extension {
+        id: "logs",
+        name: "Logs",
+        description: "The project's log files: levels, search, errors, live tail, optional sections",
+        setup: complete_setup::<logs::Setup>,
+    },
+    Extension {
+        id: "agents",
+        name: "Agents",
+        description: "Claude Code sessions in this project, their subagents, and the subagents it defines",
+        setup: complete_setup::<agents::Setup>,
+    },
+];
 
 /// An extension's setup type turns saved JSON into a complete setup (its serde defaults fill
 /// in what's missing)
@@ -77,7 +86,7 @@ mod tests {
     fn every_available_extension_can_be_turned_on() {
         for e in AVAILABLE {
             let tab = Tab::new(e.id).unwrap();
-            assert_eq!(tab.title(), "Logs");
+            assert_eq!(tab.title(), e.name, "{}", e.id);
         }
         assert!(Tab::new("nope").is_none());
     }

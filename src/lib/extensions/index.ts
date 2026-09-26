@@ -4,11 +4,15 @@
 import type { Component } from "svelte";
 import LogViewer from "./logs/LogViewer.svelte";
 import LogsSetup from "./logs/SetupForm.svelte";
+import AgentsTab from "./agents/AgentsTab.svelte";
+import AgentsSetup from "./agents/SetupForm.svelte";
 
 /** What every tab component is given */
 export interface TabProps {
   /** The project's folder */
   path: string;
+  /** The project's name (its tmux session is named after it) */
+  project: string;
   /** The tab's setup (the extension's own shape) */
   setup: any;
   /** Has the keyboard (Esc gives it back) */
@@ -48,4 +52,5 @@ export interface ExtensionUi {
 
 export const extensions: Record<string, ExtensionUi> = {
   logs: { tab: LogViewer, setup: LogsSetup },
+  agents: { tab: AgentsTab, setup: AgentsSetup },
 };

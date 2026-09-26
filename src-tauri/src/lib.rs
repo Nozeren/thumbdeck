@@ -210,6 +210,53 @@ fn logs_size(file: String) -> Option<u64> {
     std::fs::metadata(file).ok().map(|m| m.len())
 }
 
+// ------------------------------------------------------------ agents extension
+
+use extensions::agents;
+
+#[derive(Serialize)]
+struct AgentList {
+    sessions: Vec<agents::sessions::Session>,
+    /// The project's subagents, then yours (when the setup says so)
+    defined: Vec<agents::defined::Defined>,
+    /// The project's skills, then yours (when the setup says so)
+    skills: Vec<agents::skills::Skill>,
+    /// Where the sessions are read from
+    dir: String,
+}
+
+#[tauri::command]
+async fn agents_list(path: String, setup: agents::Setup) -> Result<AgentList, String> {
+    let home = agents::claude_home().ok_or("no home folder")?;
+    let dir = agents::sessions_dir(&home, Path::new(&path));
+    let mut defined = agents::defined::list(&Path::new(&path).join(".claude/agents"), "project");
+    if setup.user_agents {
+        defined.extend(agents::defined::list(&home.join("agents"), "user"));
+    }
+    let mut skills = agents::skills::list(&Path::new(&path).join(".claude/skills"), "project");
+    if setup.user_agents {
+        skills.extend(agents::skills::list(&home.join("skills"), "user"));
+    }
+    Ok(AgentList { sessions: agents::sessions::list(&dir), defined, skills, dir: dir.to_string_lossy().to_string() })
+}
+
+/// Start Claude Code as one of the agents or with a skill, in the project's "claude" tmux
+/// window, then show that window. A window already running Claude is left alone (one session
+/// at a time) and shown instead.
+#[tauri::command]
+async fn agents_start(path: String, name: String, kind: String, agent: String, task: String) -> Result<String, String> {
+    let command = agents::start_command(&kind, &agent, &task)?;
+    let message = terminal::run_in_window(&path, &name, "claude", &command)?;
+    terminal::open_window(&path, &name, "claude")?;
+    Ok(message)
+}
+
+/// A session's or subagent's conversation
+#[tauri::command]
+async fn agents_transcript(file: String) -> Result<Vec<agents::transcript::Entry>, String> {
+    agents::transcript::read(Path::new(&file))
+}
+
 // ------------------------------------------------------------ updates
 
 fn version(app: &AppHandle) -> String {
@@ -263,7 +310,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart])
+            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             Ok(())

@@ -529,7 +529,7 @@
         {@const ext = extensions[t.extension]}
         {#if ext}
           {#key `${selected.path}:${shownTab}:${JSON.stringify(t.setup)}`}
-            <ext.tab bind:this={tabRef} path={selected.path} setup={t.setup} active={keysToTab} {say}
+            <ext.tab bind:this={tabRef} path={selected.path} project={selected.name} setup={t.setup} active={keysToTab} {say}
                      onActivate={() => (keysToTab = true)} onRelease={() => (keysToTab = false)}
                      onEditSetup={() => (setupForm = { index: shownTab, tab: t })} />
           {/key}
