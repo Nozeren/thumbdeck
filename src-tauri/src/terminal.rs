@@ -23,7 +23,10 @@ pub fn session_name(project: &str) -> String {
 }
 
 fn tmux(args: &[&str]) -> std::io::Result<Output> {
+    // Tests use a tmux server of their own
+    let server: &[&str] = if cfg!(test) { &["-L", "thumbdeck-test"] } else { &[] };
     Command::new("tmux")
+        .args(server)
         .args(args)
         .env_clear()
         .envs(crate::runner::shell_env().iter().cloned())
@@ -35,30 +38,37 @@ fn ok(out: std::io::Result<Output>) -> bool {
     out.is_ok_and(|o| o.status.success())
 }
 
-/// Switch the terminal to the project's tmux session, creating it first if needed
-/// (Neovim in the first window, a shell in the second), then bring the terminal forward.
-/// Returns a short message for the app to show.
+/// Start the project's tmux session unless it's there: Neovim on the project folder in the
+/// first window, a shell in the second.
+fn ensure_session(path: &str, session: &str) -> Result<(), String> {
+    let target = format!("={session}"); // "=": exact name, not a prefix match
+    if ok(tmux(&["has-session", "-t", &target])) {
+        return Ok(());
+    }
+    if !ok(tmux(&["new-session", "-d", "-s", session, "-c", path])) {
+        return Err("couldn't start tmux (is it installed?)".into());
+    }
+    // Window 1: Neovim, run from the shell so quitting it leaves a shell there. Both windows
+    // activate the project's venv first, for Python projects.
+    let prefix = activate_prefix(path);
+    let _ = tmux(&["send-keys", "-t", &format!("{target}:^"), &format!("{prefix}nvim ."), "Enter"]);
+    // Window 2: a shell
+    let window = tmux(&["new-window", "-d", "-P", "-F", "#{window_id}", "-t", &format!("{target}:"), "-c", path])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    if !prefix.is_empty() && !window.is_empty() {
+        let activate = prefix.trim_end_matches(" && ").trim_end_matches("; and ");
+        let _ = tmux(&["send-keys", "-t", &window, &format!("{activate} && clear"), "Enter"]);
+    }
+    Ok(())
+}
+
+/// Switch the terminal to the project's tmux session, creating it first if needed, then bring
+/// the terminal forward. Returns a short message for the app to show.
 pub fn open(path: &str, name: &str) -> Result<String, String> {
     let session = session_name(name);
-    let target = format!("={session}"); // "=": exact name, not a prefix match
-
-    if !ok(tmux(&["has-session", "-t", &target])) {
-        if !ok(tmux(&["new-session", "-d", "-s", &session, "-c", path])) {
-            return Err("couldn't start tmux (is it installed?)".into());
-        }
-        // Window 1: Neovim on the project folder, run from the shell so quitting it leaves a
-        // shell there. Both windows activate the project's venv first, for Python projects.
-        let prefix = activate_prefix(path);
-        let _ = tmux(&["send-keys", "-t", &format!("{target}:^"), &format!("{prefix}nvim ."), "Enter"]);
-        // Window 2: a shell
-        let window = tmux(&["new-window", "-d", "-P", "-F", "#{window_id}", "-t", &format!("{target}:"), "-c", path])
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-        if !prefix.is_empty() && !window.is_empty() {
-            let activate = prefix.trim_end_matches(" && ").trim_end_matches("; and ");
-            let _ = tmux(&["send-keys", "-t", &window, &format!("{activate} && clear"), "Enter"]);
-        }
-    }
+    let target = format!("={session}");
+    ensure_session(path, &session)?;
 
     let clients = tmux(&["list-clients", "-F", "#{client_name}"])
         .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(String::from).collect::<Vec<_>>())
@@ -72,6 +82,50 @@ pub fn open(path: &str, name: &str) -> Result<String, String> {
         launch_terminal(&session)?;
         Ok(format!("opened kitty on tmux session {session}"))
     }
+}
+
+/// Run a command in a window of the project's tmux session (made if needed), without leaving
+/// thumbdeck. A window that's busy (not at a shell prompt) is left alone, so pressing
+/// "runserver" twice doesn't type into the running server.
+pub fn run_in_window(path: &str, name: &str, window: &str, command: &str) -> Result<String, String> {
+    let session = session_name(name);
+    let target = format!("={session}");
+    ensure_session(path, &session)?;
+
+    let list = tmux(&["list-windows", "-t", &target, "-F", "#{window_id}\t#{window_name}\t#{pane_current_command}"])
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    let existing = list.lines().find_map(|l| match l.splitn(3, '\t').collect::<Vec<_>>()[..] {
+        [id, n, cmd] if n == window => Some((id.to_string(), cmd.to_string())),
+        _ => None,
+    });
+    let id = match existing {
+        Some((_, cmd)) if !is_shell(&cmd) => {
+            return Ok(format!("tmux window '{window}' is busy ({cmd}), left it alone"));
+        }
+        Some((id, _)) => id,
+        None => {
+            let out = tmux(&["new-window", "-d", "-P", "-F", "#{window_id}", "-n", window, "-t", &format!("{target}:"), "-c", path])
+                .map_err(|e| e.to_string())?;
+            let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !out.status.success() || id.is_empty() {
+                return Err(format!("couldn't make tmux window '{window}'"));
+            }
+            id
+        }
+    };
+    let keys = format!("{}{command}", activate_prefix(path));
+    if !ok(tmux(&["send-keys", "-t", &id, &keys, "Enter"])) {
+        return Err(format!("couldn't type into tmux window '{window}'"));
+    }
+    Ok(format!("started in tmux: {session} › {window}"))
+}
+
+/// Whether a pane's current command is a shell waiting at its prompt
+fn is_shell(command: &str) -> bool {
+    let command = command.trim_start_matches('-'); // login shells: "-zsh"
+    let own = crate::runner::shell_env().iter().find(|(k, _)| k == "SHELL").map(|(_, v)| v.rsplit('/').next().unwrap_or(v));
+    ["bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "nu"].contains(&command) || own == Some(command)
 }
 
 /// Bring the terminal window to the front.
@@ -116,6 +170,45 @@ mod tests {
         std::fs::write(dir.join(".venv/bin/activate"), "").unwrap();
         assert!(super::activate_prefix(&path).starts_with("source .venv/bin/activate"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs a real tmux (its own server, see tmux()); skipped when tmux isn't installed.
+    #[test]
+    fn commands_run_in_a_named_window_and_a_busy_window_is_left_alone() {
+        if !super::ok(std::process::Command::new("tmux").arg("-V").output()) {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("thumbdeck-tmux-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.to_string_lossy().to_string();
+        let windows = || {
+            super::tmux(&["list-windows", "-t", "=proj_x", "-F", "#{window_name} #{pane_current_command}"])
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default()
+        };
+
+        let first = super::run_in_window(&path, "proj.x", "server", "sleep 30");
+        assert!(first.as_ref().is_ok_and(|m| m.contains("started")), "{first:?}");
+        assert_eq!(windows().lines().count(), 3, "nvim, shell, server: {}", windows());
+        // Wait for the shell to start sleep
+        for _ in 0..50 {
+            if windows().contains("server sleep") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let second = super::run_in_window(&path, "proj.x", "server", "sleep 30");
+        assert!(second.as_ref().is_ok_and(|m| m.contains("busy")), "{second:?} / {}", windows());
+        assert_eq!(windows().lines().count(), 3, "no second server window");
+
+        let _ = super::tmux(&["kill-server"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shells_are_told_from_running_commands() {
+        assert!(super::is_shell("zsh") && super::is_shell("-bash") && super::is_shell("fish"));
+        assert!(!super::is_shell("python3") && !super::is_shell("sleep") && !super::is_shell("nvim"));
     }
 
     #[test]

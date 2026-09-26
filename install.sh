@@ -8,6 +8,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 info() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 
+# The built-in toolkit packs come from the thumbdeck-toolkits submodule
+git submodule update --init
+
 [ -d node_modules ] || { info "Installing JavaScript dependencies"; npm install --no-audit --no-fund; }
 
 case "$(uname -s)" in

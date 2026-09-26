@@ -20,31 +20,21 @@ pub struct Project {
     pub pinned: bool,
 }
 
-fn kind(dir: &Path) -> &'static str {
+/// From the packs that apply (see actions::icon), except for Tauri apps and Neovim plugins,
+/// which no pack is about.
+fn kind(dir: &Path, packs: &[crate::packs::Pack]) -> String {
     let has = |f: &str| dir.join(f).exists();
     let name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-    if has("manage.py") {
-        "django"
-    } else if has("gradlew") || has("build.gradle") || has("build.gradle.kts") {
-        "android"
-    } else if has("src-tauri") {
-        "tauri"
-    } else if has("package.json") {
-        "node"
-    } else if has("Cargo.toml") {
-        "rust"
-    } else if has("go.mod") {
-        "go"
+    if has("src-tauri") {
+        "tauri".into()
     } else if name.ends_with(".nvim") || (has("lua") && has("plugin")) {
-        "nvim"
-    } else if has("pyproject.toml") || has("requirements.txt") || has("setup.py") {
-        "python"
+        "nvim".into()
     } else {
-        "folder"
+        crate::actions::icon(packs, dir).unwrap_or_else(|| "folder".into())
     }
 }
 
-pub fn info(path: &Path, root: Option<String>, hidden: bool, pinned: bool) -> Project {
+pub fn info(path: &Path, root: Option<String>, hidden: bool, pinned: bool, packs: &[crate::packs::Pack]) -> Project {
     let git_repo = path.join(".git").exists();
     Project {
         name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
@@ -52,7 +42,7 @@ pub fn info(path: &Path, root: Option<String>, hidden: bool, pinned: bool) -> Pr
         branch: git_repo.then(|| git(path, &["rev-parse", "--abbrev-ref", "HEAD"])).flatten(),
         dirty: git_repo && git(path, &["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
         root,
-        kind: kind(path).to_string(),
+        kind: kind(path, packs),
         hidden,
         pinned,
     }
@@ -70,7 +60,7 @@ pub fn dirs_home() -> Option<PathBuf> {
 
 /// Git repositories one level below each root, plus the folders added by hand, sorted by name.
 /// Hidden ones are included (marked), so the app can offer to show them again.
-pub fn list(roots: &[String], added: &[String], hidden: &[String], pinned: &[String]) -> Vec<Project> {
+pub fn list(roots: &[String], added: &[String], hidden: &[String], pinned: &[String], packs: &[crate::packs::Pack]) -> Vec<Project> {
     let mut paths: Vec<(PathBuf, Option<String>)> = Vec::new();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(root) else { continue };
@@ -95,7 +85,7 @@ pub fn list(roots: &[String], added: &[String], hidden: &[String], pinned: &[Str
         if found.iter().any(|p| p.path == path_str) {
             continue;
         }
-        found.push(info(&path, root, hidden.contains(&path_str), pinned.contains(&path_str)));
+        found.push(info(&path, root, hidden.contains(&path_str), pinned.contains(&path_str), packs));
     }
     found.sort_by_key(|p| p.name.to_lowercase());
     found

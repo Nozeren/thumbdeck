@@ -199,11 +199,11 @@
   }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
-  // Toolkit grouped by where each action came from (npm, django, compose, ...)
+  // Toolkit grouped by where each action came from: yours, then one group per pack
   const groups = $derived.by(() => {
     const byGroup = new Map<string, Action[]>();
     for (const a of details?.actions ?? []) byGroup.set(a.source, [...(byGroup.get(a.source) ?? []), a]);
-    return [...byGroup.entries()];
+    return [...byGroup.values()].map((actions) => [actions[0].group, actions] as const);
   });
 
   async function select(p: Project) {
@@ -234,6 +234,15 @@
   async function run(a: Action) {
     if (!selected) return;
     if (a.confirm && !(await ask(`${a.command}`, { title: `Run "${a.label}"?`, kind: "warning", okLabel: "Run" }))) return;
+    if (a.tmux) {
+      // Runs in the project's tmux session; thumbdeck only says how it went
+      try {
+        say(await invoke<string>("run_in_tmux", { path: selected.path, name: selected.name, window: a.tmux, command: a.command }));
+      } catch (err) {
+        say(String(err), true);
+      }
+      return;
+    }
     const id = await invoke<number>("run_action", { path: selected.path, command: a.command, label: a.label });
     runs.push({
       id, projectPath: selected.path, label: a.label, source: a.source, command: a.command,
@@ -401,17 +410,21 @@
       {#if details && groups.length === 0}
         <p class="hint">Nothing detected here. Add your own action with +.</p>
       {/if}
-      {#each groups as [source, actions] (source)}
-        <h3>{source === "custom" ? "yours" : source}</h3>
+      {#each details?.problems ?? [] as problem}
+        <p class="hint problem">{problem}</p>
+      {/each}
+      {#each groups as [group, actions] (actions[0].source)}
+        <h3>{group}</h3>
         <div class="grid">
           {#each actions as a (a.id)}
             {@const hint = HINT_KEYS[details?.actions.indexOf(a) ?? -1]}
             <div class="action-wrap">
-              <button class="action" class:custom={a.source === "custom"} title={a.command} onclick={() => run(a)}>
+              <button class="action" class:custom={a.source === "custom"} onclick={() => run(a)}
+                      title={[a.description, a.command, a.tmux && `runs in tmux window '${a.tmux}'`].filter(Boolean).join("\n")}>
                 {#if hints && hint}
                   <span class="hint-key">{hint}</span>
                 {:else}
-                  <span class="play">{a.confirm ? "!" : "▷"}</span>
+                  <span class="play">{a.confirm ? "!" : a.tmux ? "↗" : "▷"}</span>
                 {/if}
                 <span class="alabel">{a.label}</span>
               </button>
@@ -435,7 +448,7 @@
           <ul class="hidden-list">
             {#each details.hidden as a (a.id)}
               <li class="project muted">
-                <span class="name">{a.source} · {a.label}</span>
+                <span class="name">{a.group} · {a.label}</span>
                 <button class="icon" title="Show again" onclick={() => editActions("unhide", a.id)}>↺</button>
               </li>
             {/each}
@@ -518,6 +531,7 @@
   .dot.purple { background: var(--purple); } .dot.green { background: var(--green); } .dot.orange { background: var(--orange); }
   .count, .for { margin-left: auto; color: var(--grey); font-weight: 400; }
   .hint, .empty { color: var(--grey); font-size: 13px; }
+  .hint.problem { color: var(--red); font-size: 12px; margin: 0 0 6px; }
   .branch { color: var(--purple); font: 12px var(--mono); }
 
   /* left */

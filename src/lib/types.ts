@@ -23,10 +23,15 @@ export interface Action {
   id: string;
   label: string;
   command: string;
-  /** "custom" for your own actions, otherwise where it was detected (npm, django, ...) */
+  /** "custom" for your own actions, otherwise the toolkit pack's id (npm, django, ...) */
   source: string;
+  /** Group title in the Toolkit: the pack's name, or "yours" */
+  group: string;
+  description: string | null;
   /** Ask before running */
   confirm: boolean;
+  /** Runs in this window of the project's tmux session instead of in thumbdeck */
+  tmux: string | null;
 }
 
 /** A custom action as stored in the settings */
@@ -41,6 +46,8 @@ export interface Details {
   actions: Action[];
   /** Detected actions you hid */
   hidden: Action[];
+  /** Toolkit packs that couldn't be used, and why */
+  problems: string[];
   readme: string | null;
 }
 

@@ -1,4 +1,5 @@
 mod actions;
+mod packs;
 mod projects;
 mod runner;
 mod settings;
@@ -14,22 +15,38 @@ struct Details {
     actions: Vec<actions::Action>,
     /// Detected actions you hid, so they can be brought back
     hidden: Vec<actions::Action>,
+    /// Toolkit packs that couldn't be used, and why
+    problems: Vec<String>,
     readme: Option<String>,
 }
 
 fn details(app: &AppHandle, path: &str) -> Details {
     let s = settings::load(app);
-    let hidden_ids = s.hidden_actions.get(path).cloned().unwrap_or_default();
+    let hidden_ids: Vec<&str> = s.hidden_actions.get(path).into_iter().flatten().map(|id| legacy_id(id)).collect();
     let custom = s.custom.get(path).cloned().unwrap_or_default().into_iter().map(|c| actions::Action {
         id: format!("custom:{}", c.id),
         label: c.name,
         command: c.command,
         source: "custom".into(),
+        group: "yours".into(),
+        description: None,
         confirm: c.confirm,
+        tmux: None,
     });
+    let toolkit = actions::detect(&packs::load(), Path::new(path));
     let (hidden, shown): (Vec<_>, Vec<_>) =
-        actions::detect(Path::new(path)).into_iter().partition(|a| hidden_ids.contains(&a.id));
-    Details { actions: custom.chain(shown).collect(), hidden, readme: projects::readme(Path::new(path)) }
+        toolkit.actions.into_iter().partition(|a| hidden_ids.contains(&a.id.as_str()));
+    Details {
+        actions: custom.chain(shown).collect(),
+        hidden,
+        problems: toolkit.problems,
+        readme: projects::readme(Path::new(path)),
+    }
+}
+
+/// Ids of hidden actions from before toolkit packs, where they changed
+fn legacy_id(id: &str) -> &str {
+    if id == "pytest:pytest" { "python:pytest" } else { id }
 }
 
 #[derive(Serialize)]
@@ -41,7 +58,7 @@ struct ProjectList {
 
 fn project_list(s: &settings::Settings) -> ProjectList {
     ProjectList {
-        projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned),
+        projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned, &packs::load().packs),
         roots: s.roots.clone(),
         last: s.last.clone(),
     }
@@ -111,6 +128,12 @@ async fn open_in_tmux(path: String, name: String) -> Result<String, String> {
     terminal::open(&path, &name)
 }
 
+/// Run a toolkit action in a window of the project's tmux session
+#[tauri::command]
+async fn run_in_tmux(path: String, name: String, window: String, command: String) -> Result<String, String> {
+    terminal::run_in_window(&path, &name, &window, &command)
+}
+
 #[tauri::command]
 fn stop_run(runs: State<'_, runner::Runs>, id: u64) {
     runner::stop(&runs, id);
@@ -124,7 +147,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
