@@ -9,8 +9,12 @@ pub struct Action {
     pub id: String,
     pub label: String,
     pub command: String,
-    /// Where the action came from: npm, make, django, pytest, compose, gradle, cargo, go
+    /// Where the action came from: custom (added by you), npm, make, django, pytest, compose,
+    /// gradle, cargo, go
     pub source: String,
+    /// Ask before running (custom actions only)
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 fn action(source: &str, label: &str, command: impl Into<String>) -> Action {
@@ -19,6 +23,7 @@ fn action(source: &str, label: &str, command: impl Into<String>) -> Action {
         label: label.to_string(),
         command: command.into(),
         source: source.to_string(),
+        confirm: false,
     }
 }
 

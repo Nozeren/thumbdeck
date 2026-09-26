@@ -1,6 +1,7 @@
 //! App settings, stored as JSON in the app's config folder (never in the projects).
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -17,6 +18,44 @@ pub struct Settings {
     pub pinned: Vec<String>,
     /// Project selected last, reopened on start
     pub last: Option<String>,
+    /// Your own toolkit actions, per project path
+    pub custom: HashMap<String, Vec<CustomAction>>,
+    /// Detected actions you hid, per project path (action ids like "django:shell")
+    pub hidden_actions: HashMap<String, Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CustomAction {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Add a custom action, or replace the one with the same id. An empty id means a new action.
+pub fn save_action(s: &mut Settings, project: String, mut action: CustomAction) {
+    let list = s.custom.entry(project).or_default();
+    if action.id.is_empty() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        action.id = format!("{nanos:x}");
+    }
+    match list.iter_mut().find(|a| a.id == action.id) {
+        Some(existing) => *existing = action,
+        None => list.push(action),
+    }
+}
+
+pub fn delete_action(s: &mut Settings, project: &str, id: &str) {
+    if let Some(list) = s.custom.get_mut(project) {
+        list.retain(|a| a.id != id);
+        if list.is_empty() {
+            s.custom.remove(project);
+        }
+    }
 }
 
 impl Default for Settings {
@@ -25,7 +64,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new() }
     }
 }
 
@@ -105,7 +144,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new() }
     }
 
     #[test]
@@ -145,6 +184,20 @@ mod tests {
         assert_eq!(s.pinned, vec!["/p/a"]);
         toggle(&mut s.pinned, "/p/a".into());
         assert!(s.pinned.is_empty());
+    }
+
+    #[test]
+    fn custom_actions_are_added_edited_and_deleted() {
+        let mut s = empty();
+        let new = |id: &str, name: &str| CustomAction { id: id.into(), name: name.into(), command: "echo".into(), confirm: false };
+        save_action(&mut s, "/p".into(), new("", "Backup"));
+        let id = s.custom["/p"][0].id.clone();
+        assert!(!id.is_empty(), "a new action gets an id");
+        save_action(&mut s, "/p".into(), new(&id, "Backup DB"));
+        assert_eq!(s.custom["/p"].len(), 1, "same id replaces");
+        assert_eq!(s.custom["/p"][0].name, "Backup DB");
+        delete_action(&mut s, "/p", &id);
+        assert!(!s.custom.contains_key("/p"), "empty projects are dropped");
     }
 
     #[test]

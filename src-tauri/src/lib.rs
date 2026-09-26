@@ -9,8 +9,26 @@ use tauri::{AppHandle, State};
 
 #[derive(Serialize)]
 struct Details {
+    /// Your actions first, then the detected ones you haven't hidden
     actions: Vec<actions::Action>,
+    /// Detected actions you hid, so they can be brought back
+    hidden: Vec<actions::Action>,
     readme: Option<String>,
+}
+
+fn details(app: &AppHandle, path: &str) -> Details {
+    let s = settings::load(app);
+    let hidden_ids = s.hidden_actions.get(path).cloned().unwrap_or_default();
+    let custom = s.custom.get(path).cloned().unwrap_or_default().into_iter().map(|c| actions::Action {
+        id: format!("custom:{}", c.id),
+        label: c.name,
+        command: c.command,
+        source: "custom".into(),
+        confirm: c.confirm,
+    });
+    let (hidden, shown): (Vec<_>, Vec<_>) =
+        actions::detect(Path::new(path)).into_iter().partition(|a| hidden_ids.contains(&a.id));
+    Details { actions: custom.chain(shown).collect(), hidden, readme: projects::readme(Path::new(path)) }
 }
 
 #[derive(Serialize)]
@@ -50,9 +68,36 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
 }
 
 #[tauri::command]
-async fn project_details(path: String) -> Details {
-    let dir = Path::new(&path);
-    Details { actions: actions::detect(dir), readme: projects::readme(dir) }
+async fn project_details(app: AppHandle, path: String) -> Details {
+    details(&app, &path)
+}
+
+/// Change a project's toolkit; returns the new details.
+/// change: "save" (add/edit a custom action), "delete", "hide" or "unhide" (detected actions)
+#[tauri::command]
+async fn edit_actions(
+    app: AppHandle,
+    path: String,
+    change: String,
+    id: String,
+    action: Option<settings::CustomAction>,
+) -> Result<Details, String> {
+    settings::update(&app, |s| match change.as_str() {
+        "save" => {
+            if let Some(a) = action {
+                settings::save_action(s, path.clone(), a);
+            }
+        }
+        "delete" => settings::delete_action(s, &path, id.trim_start_matches("custom:")),
+        "hide" => settings::toggle(s.hidden_actions.entry(path.clone()).or_default(), id),
+        "unhide" => {
+            if let Some(list) = s.hidden_actions.get_mut(&path) {
+                list.retain(|h| h != &id);
+            }
+        }
+        _ => {}
+    })?;
+    Ok(details(&app, &path))
 }
 
 #[tauri::command]
@@ -72,7 +117,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, run_action, stop_run])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

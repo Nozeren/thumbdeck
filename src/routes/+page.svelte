@@ -3,14 +3,17 @@
   import { listen } from "@tauri-apps/api/event";
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
-  import { open } from "@tauri-apps/plugin-dialog";
-  import type { Action, Details, Project, ProjectList, Run } from "$lib/types";
+  import { ask, open } from "@tauri-apps/plugin-dialog";
+  import type { Action, CustomAction, Details, Project, ProjectList, Run } from "$lib/types";
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
   // Folded sections of the tree (not saved: each start folds all but the one in use)
   let collapsed = $state<string[]>([]);
   let addMenu = $state(false);
+  // Form for adding / editing a custom action (null when closed)
+  let form = $state<CustomAction | null>(null);
+  let showHiddenActions = $state(false);
   let addMenuEl = $state<HTMLElement | null>(null);
 
   // Close the + menu on a click anywhere else, or on Esc
@@ -18,7 +21,10 @@
     if (addMenu && addMenuEl && !addMenuEl.contains(e.target as Node)) addMenu = false;
   }
   function closeMenuOnEsc(e: KeyboardEvent) {
-    if (e.key === "Escape") addMenu = false;
+    if (e.key === "Escape") {
+      addMenu = false;
+      form = null;
+    }
   }
   let filter = $state("");
   let selected = $state<Project | null>(null);
@@ -109,8 +115,26 @@
     details = await invoke<Details>("project_details", { path: p.path });
   }
 
+  async function editActions(change: string, id = "", action: CustomAction | null = null) {
+    if (!selected) return;
+    details = await invoke<Details>("edit_actions", { path: selected.path, change, id, action });
+  }
+
+  function openForm(a?: Action) {
+    form = a
+      ? { id: a.id.replace(/^custom:/, ""), name: a.label, command: a.command, confirm: a.confirm }
+      : { id: "", name: "", command: "", confirm: false };
+  }
+
+  async function saveForm() {
+    if (!form || !form.name.trim() || !form.command.trim()) return;
+    await editActions("save", "", { ...form, name: form.name.trim(), command: form.command.trim() });
+    form = null;
+  }
+
   async function run(a: Action) {
     if (!selected) return;
+    if (a.confirm && !(await ask(`${a.command}`, { title: `Run "${a.label}"?`, kind: "warning", okLabel: "Run" }))) return;
     const id = await invoke<number>("run_action", { path: selected.path, command: a.command });
     runs.push({
       id, projectPath: selected.path, label: a.label, source: a.source, command: a.command,
@@ -270,23 +294,70 @@
     </section>
 
     <section class="card toolkit">
-      <h2><span class="dot orange"></span>Toolkit {#if selected}<span class="for">{selected.name}</span>{/if}</h2>
+      <h2>
+        <span class="dot orange"></span>Toolkit {#if selected}<span class="for">{selected.name}</span>{/if}
+        {#if selected}<button class="icon" title="Add your own action" onclick={() => openForm()}>+</button>{/if}
+      </h2>
       {#if details && groups.length === 0}
-        <p class="hint">Nothing detected in this project.</p>
+        <p class="hint">Nothing detected here. Add your own action with +.</p>
       {/if}
       {#each groups as [source, actions] (source)}
-        <h3>{source}</h3>
+        <h3>{source === "custom" ? "yours" : source}</h3>
         <div class="grid">
           {#each actions as a (a.id)}
-            <button class="action" title={a.command} onclick={() => run(a)}>
-              <span class="play">▷</span>{a.label}
-            </button>
+            <div class="action-wrap">
+              <button class="action" class:custom={a.source === "custom"} title={a.command} onclick={() => run(a)}>
+                <span class="play">{a.confirm ? "!" : "▷"}</span><span class="alabel">{a.label}</span>
+              </button>
+              <span class="action-tools">
+                {#if a.source === "custom"}
+                  <button class="icon" title="Edit" onclick={() => openForm(a)}>✎</button>
+                  <button class="icon" title="Delete" onclick={() => editActions("delete", a.id)}>×</button>
+                {:else}
+                  <button class="icon" title="Hide from this project" onclick={() => editActions("hide", a.id)}>×</button>
+                {/if}
+              </span>
+            </div>
           {/each}
         </div>
       {/each}
+      {#if details?.hidden.length}
+        <button class="fold hidden-actions" onclick={() => (showHiddenActions = !showHiddenActions)}>
+          <span class="caret">{showHiddenActions ? "▾" : "▸"}</span>hidden ({details.hidden.length})
+        </button>
+        {#if showHiddenActions}
+          <ul class="hidden-list">
+            {#each details.hidden as a (a.id)}
+              <li class="project muted">
+                <span class="name">{a.source} · {a.label}</span>
+                <button class="icon" title="Show again" onclick={() => editActions("unhide", a.id)}>↺</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
     </section>
   </aside>
 </main>
+
+{#if form && selected}
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (form = null)}>
+    <form class="dialog" onsubmit={(e) => { e.preventDefault(); saveForm(); }}>
+      <h2><span class="dot orange"></span>{form.id ? "Edit action" : "New action"} <span class="for">{selected.name}</span></h2>
+      <label>Name <input bind:value={form.name} placeholder="Backup DB" {@attach (el) => el.focus()} /></label>
+      <label>Command
+        <textarea bind:value={form.command} rows="3" placeholder="./scripts/backup.sh && ls backups/"
+                  onkeydown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && saveForm()}></textarea>
+      </label>
+      <p class="hint">Runs in {home(selected.path)} with your shell's environment.</p>
+      <label class="check"><input type="checkbox" bind:checked={form.confirm} /> Ask before running</label>
+      <div class="buttons">
+        <button type="button" class="ghost" onclick={() => (form = null)}>Cancel</button>
+        <button type="submit" class="primary" disabled={!form.name.trim() || !form.command.trim()}>Save</button>
+      </div>
+    </form>
+  </div>
+{/if}
 
 <style>
   :global(:root) {
@@ -391,7 +462,28 @@
 
   .toolkit { flex: 1; overflow: auto; border-color: color-mix(in srgb, var(--orange) 35%, var(--bg2)); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .action { display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border-radius: 8px; background: var(--bg1); border: 1px solid var(--bg2); font: 12.5px var(--mono); }
+  .action-wrap { position: relative; }
+  .action { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border-radius: 8px; background: var(--bg1); border: 1px solid var(--bg2); font: 12.5px var(--mono); }
+  .action.custom { border-color: color-mix(in srgb, var(--yellow) 30%, var(--bg2)); }
+  .alabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .action-tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; opacity: 0; background: var(--bg1); border-radius: 6px; }
+  .action-wrap:hover .action-tools { opacity: 1; }
+  .hidden-actions { margin-top: 12px; }
+  .hidden-list { list-style: none; margin: 0; padding: 0 0 0 10px; font: 12px var(--mono); }
+  .avatar.custom { background: var(--yellow); }
+
+  .backdrop { position: fixed; inset: 0; z-index: 50; background: #0009; display: grid; place-items: center; }
+  .dialog { width: min(520px, 90vw); background: var(--bg0); border: 1px solid var(--bg3); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px #000a; }
+  .dialog label { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono); color: var(--grey); }
+  .dialog input:not([type]), .dialog textarea { background: var(--bg1); border: 1px solid var(--bg2); border-radius: 8px; padding: 8px 10px; color: var(--fg); font: 13px var(--mono); outline: none; resize: vertical; }
+  .dialog input:not([type]):focus, .dialog textarea:focus { border-color: var(--orange); }
+  .dialog .check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); }
+  .dialog .hint { margin: -6px 0 0; font-size: 12px; }
+  .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  .ghost, .primary { padding: 7px 16px; border-radius: 8px; font: 12.5px var(--mono); }
+  .ghost { color: var(--grey); } .ghost:hover { background: var(--bg2); color: var(--fg); }
+  .primary { background: var(--orange); color: var(--bg0); font-weight: 600; }
+  .primary:disabled { opacity: 0.4; cursor: default; }
   .action:hover { border-color: var(--orange); }
   .play { color: var(--orange); }
 </style>

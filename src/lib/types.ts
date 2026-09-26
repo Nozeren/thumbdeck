@@ -23,11 +23,24 @@ export interface Action {
   id: string;
   label: string;
   command: string;
+  /** "custom" for your own actions, otherwise where it was detected (npm, django, ...) */
   source: string;
+  /** Ask before running */
+  confirm: boolean;
+}
+
+/** A custom action as stored in the settings */
+export interface CustomAction {
+  id: string;
+  name: string;
+  command: string;
+  confirm: boolean;
 }
 
 export interface Details {
   actions: Action[];
+  /** Detected actions you hid */
+  hidden: Action[];
   readme: string | null;
 }
 
