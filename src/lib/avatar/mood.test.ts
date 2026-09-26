@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickMood, RECENT_MS, SLEEP_MS, type Signals } from "./mood.ts";
-import { frame, WIDTH } from "./sprite.ts";
+import { CHARACTERS, frame, HEIGHT, WIDTH } from "./sprite.ts";
 
 const now = Date.parse("2026-09-26T15:00:00Z");
 const quiet: Signals = { runs: [], claude: [], logsReading: false, prsToReview: null, update: null, lastInput: now };
@@ -32,19 +32,30 @@ test("asleep when you're away, sleepy late at night", () => {
   assert.equal(at({ claude: [{ project: "a", status: "idle" }] }).mood, "idle", "an idle session is quiet");
 });
 
-test("every frame is a full grid", () => {
-  for (const mood of ["failed", "done", "waiting", "running", "thinking", "reading", "review", "update", "sleeping", "night", "idle"] as const) {
-    for (let tick = 0; tick < 30; tick++) {
-      const rows = frame(mood, tick);
-      assert.equal(rows.length, 13, mood);
-      for (const r of rows) assert.equal(r.length, WIDTH, `${mood} ${tick}: ${r}`);
+test("every character's every frame is a full grid, in colours it has", () => {
+  for (const [id, c] of Object.entries(CHARACTERS)) {
+    for (const mood of ["failed", "done", "waiting", "running", "thinking", "reading", "review", "update", "sleeping", "night", "idle"] as const) {
+      for (let tick = 0; tick < 30; tick++) {
+        const rows = frame(mood, tick, c);
+        assert.equal(rows.length, HEIGHT, `${id} ${mood}`);
+        for (const r of rows) {
+          assert.equal(r.length, WIDTH, `${id} ${mood} ${tick}: ${r}`);
+          for (const ch of r) assert.ok(ch === "." || c.colors[ch], `${id} ${mood}: no colour for ${ch}`);
+        }
+      }
     }
+  }
+});
+
+test("waving changes the picture", () => {
+  for (const [id, c] of Object.entries(CHARACTERS)) {
+    assert.notDeepEqual(frame("waiting", 0, c), frame("waiting", 2, c), id);
   }
 });
 
 test("the face follows the mood", () => {
   assert.equal(frame("idle", 1)[4].slice(4, 6), "wk", "eyes open");
-  assert.equal(frame("sleeping", 1)[4].slice(4, 6), "bb", "eyes closed");
+  assert.equal(frame("sleeping", 1)[4].slice(4, 6), "ff", "eyes closed");
   assert.equal(frame("done", 1)[7].slice(7, 9), "oo", "mouth open");
   assert.equal(frame("idle", 1)[4].slice(10, 12), "kw", "the right eye is mirrored");
 });

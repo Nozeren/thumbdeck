@@ -17,6 +17,8 @@ export interface ProjectList {
   roots: string[];
   /** Project selected last, reopened on start */
   last: string | null;
+  /** The character in the top bar (empty: the octopus; "none": no character) */
+  avatar: string;
 }
 
 export interface Action {

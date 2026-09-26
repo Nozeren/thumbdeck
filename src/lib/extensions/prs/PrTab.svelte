@@ -23,7 +23,7 @@
     loading = true;
     try {
       data = await invoke<PrList>("prs_list", { path, setup });
-      // The octopus in the top bar holds up a sign while PRs wait for your review
+      // The avatar in the top bar holds up a sign while PRs wait for your review
       avatarSignals.prsToReview = data.prs.filter((p) => p.category === "review" || p.category === "re-review").length;
       error = "";
       cursor = Math.min(cursor, Math.max(0, data.prs.length - 1));

@@ -1,4 +1,4 @@
-// What the octopus in the top bar shows: one mood, picked from what's going on, most urgent
+// What the avatar in the top bar shows: one mood, picked from what's going on, most urgent
 // first. Pure, tested with `node --test` (mood.test.ts).
 
 export type Mood =

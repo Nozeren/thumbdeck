@@ -24,6 +24,8 @@ pub struct Settings {
     pub hidden_actions: HashMap<String, Vec<String>>,
     /// Extension tabs turned on, per project path
     pub extensions: HashMap<String, Vec<crate::extensions::Tab>>,
+    /// The character in the top bar ("octopus", "crab", ...; empty: the octopus; "none": none)
+    pub avatar: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -86,7 +88,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new() }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new() }
     }
 }
 
@@ -166,7 +168,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new() }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new() }
     }
 
     #[test]

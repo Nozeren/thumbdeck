@@ -6,7 +6,7 @@
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, Update } from "$lib/types";
   import { extensions, type TabExports } from "$lib/extensions";
-  import Octopus from "$lib/avatar/Octopus.svelte";
+  import Avatar from "$lib/avatar/Avatar.svelte";
   import { pickMood } from "$lib/avatar/mood";
   import { avatarSignals } from "$lib/avatar/signals.svelte";
 
@@ -248,6 +248,7 @@
   function applyList(list: ProjectList, starting = false) {
     projects = list.projects;
     roots = list.roots;
+    avatar = list.avatar;
     const shown = projects.filter((p) => !p.hidden);
     // Keep the selection if it's still visible; on start, reopen the last project used
     let next = selected && shown.find((p) => p.path === selected!.path);
@@ -282,7 +283,9 @@
   // ------------------------------------------------------------ updates
   let update = $state<Update | null>(null); // a newer release (checked on start)
 
-  // ------------------------------------------------------------ the octopus
+  // ------------------------------------------------------------ the avatar (top bar)
+  let avatar = $state(""); // the character (settings); "none": no character
+  let avatarRef = $state<{ pickCharacter(): void } | null>(null);
   let lastInput = $state(Date.now());
   let claudeLive = $state<{ project: string; status: string }[]>([]);
   $effect(() => {
@@ -301,7 +304,7 @@
       window.removeEventListener("pointerdown", input, true);
     };
   });
-  const octopus = $derived(
+  const avatarMood = $derived(
     pickMood(
       {
         runs,
@@ -483,7 +486,9 @@
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
     <header class="app" data-tauri-drag-region>
-      thumbdeck <Octopus mood={octopus.mood} caption={octopus.caption} />
+      <button class="title" title="Pick a character, or none" onclick={() => avatarRef?.pickCharacter()}>thumbdeck</button>
+      <Avatar bind:this={avatarRef} mood={avatarMood.mood} caption={avatarMood.caption} character={avatar}
+        onPick={async (id) => applyList(await invoke<ProjectList>("edit_projects", { change: "avatar", path: id }))} />
       {#if update}
         <button class="update-dot" title="thumbdeck {update.version} is available" onclick={() => (updateDialog = true)}>● {update.version}</button>
       {/if}
@@ -820,6 +825,7 @@
   .branch { color: var(--purple); font: 12px var(--mono); }
 
   /* left */
+  .app .title { font: inherit; padding: 0; background: none; }
   .app { font: 700 22px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
   .update-dot { padding: 1px 8px; border-radius: 10px; background: var(--bg1); color: var(--green); font: 600 11px var(--mono); }
   .update-dot:hover { background: var(--bg2); }

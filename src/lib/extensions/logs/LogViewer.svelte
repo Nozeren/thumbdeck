@@ -94,7 +94,7 @@
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - 10));
   const shown = $derived(list.slice(first, first + Math.ceil(height / ROW) + 20));
 
-  /** Read a log; the octopus in the top bar reads along */
+  /** Read a log; the avatar in the top bar reads along */
   async function readLog(file: string): Promise<Log> {
     avatarSignals.logsReading++;
     try {

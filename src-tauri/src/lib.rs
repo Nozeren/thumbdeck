@@ -66,6 +66,7 @@ struct ProjectList {
     projects: Vec<projects::Project>,
     roots: Vec<String>,
     last: Option<String>,
+    avatar: String,
 }
 
 fn project_list(s: &settings::Settings) -> ProjectList {
@@ -73,6 +74,7 @@ fn project_list(s: &settings::Settings) -> ProjectList {
         projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned, &packs::load().packs),
         roots: s.roots.clone(),
         last: s.last.clone(),
+        avatar: s.avatar.clone(),
     }
 }
 
@@ -92,6 +94,7 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
         "remove-root" => settings::remove_root(s, &path),
         "pin" => settings::toggle(&mut s.pinned, path),
         "last" => s.last = Some(path),
+        "avatar" => s.avatar = path, // "path" is the character here
         _ => {}
     })?;
     Ok(project_list(&s))
