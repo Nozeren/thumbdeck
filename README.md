@@ -8,7 +8,8 @@ Linux and macOS.
 - **Toolkit** (right): buttons for the selected project, from
   [toolkit packs](https://github.com/Nozeren/thumbdeck-toolkits) (npm/pnpm/yarn scripts,
   Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go) and your own actions.
-- **Center**: the project's README, the output of what you ran, and tabs like **Logs**.
+- **Center**: the project's README, tabs like **Logs**, and the output of what you ran, with a
+  tab for each at the bottom.
 - **Running** (right): what you started, with status and a stop button.
 
 Commands run with your login shell's environment, so tools from Homebrew, fnm or
@@ -21,9 +22,10 @@ to scan…** for more); **+ › Add project…** adds any folder. Pin the ones y
 the others (×); hidden projects stay at the bottom, to show again (↺).
 
 **Toolkit.** Buttons come from the packs that apply to the project (a `manage.py` brings the
-Django pack, a `package.json` one button per script, ...). Press one to run it: its output
-streams into the center, and when it ends while you're in another window, you get a
-notification. Hover a button to see its command; × hides it from this project (it goes to
+Django pack, a `package.json` one button per script, ...). Press one to run it: it opens as a tab at the
+bottom of the center (● running, ✓ done, ✗ failed) with its output streaming in, and when it
+ends while you're in another window, you get a notification. × closes the tab; the command
+keeps running, and the Running panel opens it again. Hover a button to see its command; × hides it from this project (it goes to
 *hidden*, to bring back).
 
 - **Your own actions**: **+** in the Toolkit (or `a`): a name and a command, run in the
@@ -40,8 +42,9 @@ the first window, a shell in the second, the project's venv active in both. Butt
 and keep running when thumbdeck closes; pressing one again while it runs doesn't start it
 twice.
 
-**Tabs.** **+** next to README adds a tab to the project; ⚙ (or `S` in the tab) changes its
-setup, and removes it. `z` (or ⤢) expands the center to the whole window.
+**Tabs.** The strip at the bottom of the center has the README, the project's tabs and its
+runs; `1`, `2`, … switch between them. **+** there adds a tab to the project; ⚙ (or `S` in the
+tab) changes its setup, and removes it. `z` (or ⤢) expands the center to the whole window.
 
 - **Logs** shows the project's log files: JSON lines (pino, bunyan, structlog, ...) or plain
   text (Python, Django, Rust, Go, nginx, ...), with levels to show or hide, search, jumping from
@@ -59,8 +62,8 @@ setup, and removes it. `z` (or ⤢) expands the center to the whole window.
 | Space, then a letter | run a Toolkit button (the letters show on the buttons) |
 | `a` | add your own action |
 | `s` | stop the command shown |
-| `o`, `[` / `]` | README ↔ output, previous / next run's output |
-| `1`, `2`, … | README, then the project's tabs |
+| `1`, `2`, … | the tabs at the bottom: README, the project's tabs, its runs |
+| `o`, `[` / `]` | README ↔ the latest run, previous / next run |
 | `z` | expand the center / back |
 | Esc | close menus and forms, leave the filter |
 

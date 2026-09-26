@@ -115,10 +115,10 @@
   }
 
   function cycleRuns(delta: number) {
-    const list = projectRuns.toReversed(); // oldest first
+    const list = runTabs; // oldest first
     if (!list.length) return;
     const i = list.findIndex((r) => r.id === shownRun);
-    shownRun = list[(i < 0 ? list.length - 1 : i + delta + list.length) % list.length].id;
+    showRun(list[(i < 0 ? list.length - 1 : i + delta + list.length) % list.length].id);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -127,8 +127,10 @@
     // 1 README, 2… extension tabs
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
+      const runIndex = n - 2 - details.tabs.length;
       if (n === 1) showTab(null);
       else if (details.tabs[n - 2]) showTab(n - 2);
+      else if (runTabs[runIndex]) showRun(runTabs[runIndex].id);
       e.preventDefault();
       return;
     }
@@ -143,8 +145,11 @@
       e.preventDefault();
       return;
     }
-    // Enter / Space on a focused button press it (not thumbdeck's Enter = open in tmux, Space = hints)
-    if ((e.key === "Enter" || e.key === " ") && e.target instanceof HTMLElement && e.target.closest("button")) return;
+    // Enter / Space on a button you reached with the keyboard (Tab) press it, not thumbdeck's
+    // Enter (open in tmux) or Space (hints). A clicked button keeps the focus too, but not
+    // :focus-visible, so after a click the shortcuts work as usual.
+    const button = e.target instanceof HTMLElement ? e.target.closest("button") : null;
+    if ((e.key === "Enter" || e.key === " ") && button?.matches(":focus-visible")) return;
     if (e.key === "Escape") {
       addMenu = false;
       tabMenu = false;
@@ -179,7 +184,7 @@
       case "x": if (selected) edit("remove", selected.path); break;
       case "a": if (selected) openForm(); break;
       case "s": if (current && current.endedAt === null) stop(current); break;
-      case "o": shownRun = shownRun === null ? (projectRuns[0]?.id ?? null) : null; break;
+      case "o": if (shownRun === null) { const last = runTabs.at(-1); if (last) showRun(last.id); } else showTab(null); break;
       case "[": cycleRuns(-1); break;
       case "]": cycleRuns(1); break;
       case "?": helpOpen = !helpOpen; break;
@@ -314,6 +319,26 @@
   }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
+  // Runs whose tab you closed (they keep running; the Running panel opens them again)
+  let closedRuns = $state<number[]>([]);
+  // The project's runs as tabs, oldest first
+  const runTabs = $derived(projectRuns.toReversed().filter((r) => !closedRuns.includes(r.id)));
+
+  function showRun(id: number) {
+    closedRuns = closedRuns.filter((x) => x !== id);
+    shownRun = id;
+    keysToTab = false;
+  }
+
+  function closeRun(r: Run) {
+    const i = runTabs.findIndex((x) => x.id === r.id);
+    closedRuns = [...closedRuns, r.id];
+    if (shownRun === r.id) {
+      const next = runTabs[i] ?? runTabs[i - 1]; // runTabs no longer has r
+      if (next) shownRun = next.id;
+      else showTab(shownTab !== null && details?.tabs[shownTab] ? shownTab : null, false);
+    }
+  }
   // An extension tab is in the center (not the README or a run's output)
   const tabShown = $derived(shownRun === null && shownTab !== null && !!details?.tabs[shownTab]);
   // Toolkit grouped by where each action came from: yours, then one group per pack
@@ -486,32 +511,15 @@
   <section class="panel center" bind:this={centerEl}>
     {#if selected}
       <nav class="crumbs">
-        <span>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
-        <span> / </span><strong>{selected.name}</strong>
+        <span class="path" title={selected.path}>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
+        <span> / </span><strong class="name">{selected.name}</strong>
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
         <span class="spacer"></span>
         <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> Open in tmux</button>
-        <button class="tab" class:on={shownRun === null && !tabShown} title="README (1)" onclick={() => showTab(null)}>README</button>
-        {#each details?.tabs ?? [] as t, i}
-          <button class="tab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}>{t.title}</button>
-        {/each}
-        <span class="menu-anchor" bind:this={tabMenuEl}>
-          <button class="tab" title="Add a tab to this project" onclick={() => (tabMenu = !tabMenu)}>+</button>
-          {#if tabMenu}
-            <div class="menu">
-              {#each available as x}
-                <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
-              {/each}
-            </div>
-          {/if}
-        </span>
         <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
                 onclick={() => (wide = !wide)}>{wide ? "⤡" : "⤢"}</button>
-        {#if current}
-          <button class="tab on">{current.label}</button>
-        {/if}
       </nav>
+      <div class="view">
       {#if current}
         <pre class="output" bind:this={outputEl}><span class="cmd">$ {current.command}</span>
 {#each current.lines as l}<span class:err={l.stderr}>{l.text}</span>
@@ -528,12 +536,48 @@
         {:else}
           <p class="empty">This thumbdeck doesn't have the extension "{t.extension}" (a newer version may).</p>
         {/if}
-        {#if keysToTab}<p class="keys-hint">keys go to {t.title} · Esc gives them back</p>{/if}
       {:else if details?.readme}
         <article class="readme">{@html marked.parse(details.readme)}</article>
       {:else}
         <p class="empty">{details ? "No README in this project." : "Loading…"}</p>
       {/if}
+      </div>
+      <!-- Tabs: README, the project's extension tabs, the runs you started (1, 2, …) -->
+      <nav class="tabbar">
+        <div class="tabs">
+        <button class="btab" class:on={shownRun === null && !tabShown} title="README (1)" onclick={() => showTab(null)}>
+          <span class="bicon">≡</span>README
+        </button>
+        {#each details?.tabs ?? [] as t, i}
+          <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
+                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}</button>
+        {/each}
+        {#each runTabs as r, i (r.id)}
+          {@const n = 2 + (details?.tabs.length ?? 0) + i}
+          <span class="btab brun" class:on={shownRun === r.id}>
+            <button class="blabel" title="{r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
+              <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>{r.label}
+            </button>
+            <button class="bclose" title="Close the tab{r.endedAt === null ? ' (the command keeps running)' : ''}"
+                    onclick={() => closeRun(r)}>×</button>
+          </span>
+        {/each}
+        </div>
+        <span class="menu-anchor" bind:this={tabMenuEl}>
+          <button class="btab add" title="Add a tab to this project" onclick={() => (tabMenu = !tabMenu)}>+</button>
+          {#if tabMenu}
+            <div class="menu up">
+              {#each available as x}
+                <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
+              {/each}
+            </div>
+          {/if}
+        </span>
+        <span class="spacer"></span>
+        {#if keysToTab && tabShown && details && shownTab !== null}
+          <span class="keys-hint">keys go to {details.tabs[shownTab].title} · Esc gives them back</span>
+        {/if}
+      </nav>
     {:else}
       <p class="empty">No projects found in ~/dev, ~/projects or your home folder.</p>
     {/if}
@@ -548,7 +592,7 @@
       {/if}
       {#each projectRuns as r (r.id)}
         <div class="run" class:shown={r.id === shownRun} role="button" tabindex="0"
-             onclick={() => (shownRun = r.id)} onkeydown={(e) => e.key === "Enter" && (shownRun = r.id)}>
+             onclick={() => showRun(r.id)} onkeydown={(e) => e.key === "Enter" && showRun(r.id)}>
           <span class="avatar {r.source}">{r.source.slice(0, 2)}</span>
           <span class="what">
             <span class="label">{r.label}</span>
@@ -629,7 +673,7 @@
       <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
       <dl>
         <dt>j / k</dt><dd>next / previous project</dd>
-        <dt>1, 2…</dt><dd>README, then the project's tabs (a tab takes the keyboard; Esc gives it back)</dd>
+        <dt>1, 2…</dt><dd>the tabs at the bottom: README, the project's tabs (they take the keyboard; Esc gives it back), its runs</dd>
         <dt>z</dt><dd>expand the center to the whole window / back</dd>
         <dt>Enter</dt><dd>open the project in tmux (its own session: Neovim + a shell)</dd>
         <dt>gg / G</dt><dd>first / last project</dd>
@@ -639,8 +683,8 @@
         <dt>Space, letter</dt><dd>run a Toolkit button</dd>
         <dt>a</dt><dd>add your own action</dd>
         <dt>s</dt><dd>stop the command shown</dd>
-        <dt>o</dt><dd>README ↔ output</dd>
-        <dt>[ / ]</dt><dd>previous / next run's output</dd>
+        <dt>o</dt><dd>README ↔ the latest run</dd>
+        <dt>[ / ]</dt><dd>previous / next run tab (× on a tab closes it; the command keeps running)</dd>
         <dt>Esc</dt><dd>close menus, forms, this help; leave the filter</dd>
       </dl>
     </div>
@@ -782,13 +826,34 @@
   .center { position: relative; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }
   .crumbs { display: flex; align-items: center; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); }
   .crumbs strong { color: var(--fg); }
+  /* One line: the path gives way first (… at its end), the name, branch and buttons stay whole */
+  .crumbs > :not(.spacer) { flex: none; white-space: nowrap; }
+  .crumbs > .path { flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; }
   .spacer { flex: 1; }
   .tab { padding: 3px 10px; border-radius: 6px; font: 12px var(--mono); color: var(--grey); }
   .tab.on { background: var(--bg2); color: var(--fg); }
-  .tab.keys { box-shadow: inset 0 -2px var(--orange); }
+  .view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .view > .readme { overflow: auto; }
+  .tabbar { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-top: 1px solid var(--bg2);
+            font: 12px var(--mono); }
+  /* The tabs keep their size and scroll sideways when there are many; + stays outside (its menu opens upward) */
+  .tabs { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+  .btab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 3px 10px; border-radius: 6px;
+          color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+  .btab:hover { background: var(--bg1); color: var(--fg); }
+  .btab.on { background: var(--bg2); color: var(--fg); }
+  .btab.keys { box-shadow: inset 0 -2px var(--orange); }
+  .btab.brun { padding: 0 2px 0 0; gap: 0; }
+  .btab.brun .blabel { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 4px 3px 10px;
+                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bclose { flex: none; padding: 0 6px; color: var(--grey); border-radius: 4px; }
+  .bclose:hover { color: var(--fg); background: var(--bg3); }
+  .bicon { flex: none; color: var(--grey); }
+  .st.running, .st.done { color: var(--green); } .st.failed { color: var(--red); }
+  .btab.add { flex: none; padding: 3px 9px; }
+  .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
-  .keys-hint { position: absolute; right: 14px; bottom: 8px; margin: 0; padding: 2px 8px; border-radius: 6px;
-               background: var(--bg1); color: var(--orange); font: 11px var(--mono); pointer-events: none; }
+  .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(h1), .readme :global(h2) { font-family: var(--mono); border-bottom: 1px solid var(--bg2); padding-bottom: 6px; }
   .readme :global(code) { font-family: var(--mono); background: var(--bg1); padding: 1px 5px; border-radius: 4px; color: var(--aqua); }
