@@ -97,6 +97,32 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// The project's README, if it has one.
+/// An image the README shows (a path relative to the project, like "docs/screenshot.png"), as a
+/// data URL the page can show. Only image files inside the project, and not huge ones.
+pub fn readme_image(project: &Path, src: &str) -> Result<String, String> {
+    const MAX: u64 = 8 * 1024 * 1024;
+    let src = src.split(['?', '#']).next().unwrap_or("").trim_start_matches("./");
+    let kind = match src.rsplit('.').next().map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => return Err(format!("not an image: {src}")),
+    };
+    let root = project.canonicalize().map_err(|e| e.to_string())?;
+    let file = root.join(src).canonicalize().map_err(|_| format!("no image at {src}"))?;
+    if !file.starts_with(&root) {
+        return Err(format!("{src} is outside the project"));
+    }
+    if std::fs::metadata(&file).map_err(|e| e.to_string())?.len() > MAX {
+        return Err(format!("{src} is too big to show"));
+    }
+    use base64::Engine;
+    let bytes = std::fs::read(&file).map_err(|e| e.to_string())?;
+    Ok(format!("data:{kind};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
 pub fn readme(dir: &Path) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut candidates: Vec<PathBuf> = entries
@@ -111,4 +137,26 @@ pub fn readme(dir: &Path) -> Option<String> {
     // Prefer README.md over README.txt etc.
     candidates.sort_by_key(|p| !p.to_string_lossy().to_lowercase().ends_with(".md"));
     std::fs::read_to_string(candidates.first()?).ok()
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn readme_images_come_from_inside_the_project_only() {
+        let dir = std::env::temp_dir().join(format!("thumbdeck-img-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("docs/shot.png"), [137, 80, 78, 71]).unwrap();
+        std::fs::write(dir.join("notes.txt"), "text").unwrap();
+        assert_eq!(super::readme_image(&dir, "docs/shot.png").unwrap(), "data:image/png;base64,iVBORw==");
+        assert!(super::readme_image(&dir, "./docs/shot.png?raw=true").is_ok());
+        assert!(super::readme_image(&dir, "notes.txt").is_err(), "not an image");
+        assert!(super::readme_image(&dir, "missing.png").is_err());
+        let outside = std::env::temp_dir().join(format!("thumbdeck-img-outside-{}.png", std::process::id()));
+        std::fs::write(&outside, [1]).unwrap();
+        let escape = format!("../{}", outside.file_name().unwrap().to_string_lossy());
+        assert!(super::readme_image(&dir, &escape).unwrap_err().contains("outside"));
+        std::fs::remove_file(outside).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

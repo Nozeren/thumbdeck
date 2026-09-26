@@ -117,6 +117,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" -R Nozeren/thumbdeck-releases \
-            --title "thumbdeck ${GITHUB_REF_NAME#v}" --notes-file notes.md \
-            out/*.tar.gz out/*.sig out/latest.json install.sh
+          files=(out/*.tar.gz out/*.sig out/latest.json install.sh)
+          repo=Nozeren/thumbdeck-releases
+          if gh release view "$GITHUB_REF_NAME" -R "$repo" > /dev/null 2>&1; then
+            # A rebuild of a release (its tag moved to a newer commit): replace its files and notes
+            gh release upload "$GITHUB_REF_NAME" -R "$repo" --clobber "${files[@]}"
+            gh release edit "$GITHUB_REF_NAME" -R "$repo" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$repo" \
+              --title "thumbdeck ${GITHUB_REF_NAME#v}" --notes-file notes.md "${files[@]}"
+          fi

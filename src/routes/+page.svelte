@@ -294,6 +294,26 @@
   let review = $state<ReviewRequest | null>(null); // the review page, over everything
   let filtering = $state(false); // the filter box has the keyboard
 
+  // A README's own images (docs/screenshot.png) are in the project's folder, which the page
+  // can't reach: thumbdeck reads them and puts them in. Web images load as they are.
+  let readmeEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const el = readmeEl;
+    const path = selected?.path;
+    void details?.readme;
+    if (!el || !path) return;
+    tick().then(() => {
+      for (const img of el.querySelectorAll("img")) {
+        const src = img.getAttribute("src") ?? "";
+        if (!src || /^([a-z]+:|\/\/)/i.test(src)) continue; // http(s):, data:, //host
+        img.removeAttribute("src");
+        invoke<string>("readme_image", { path, src })
+          .then((url) => selected?.path === path && (img.src = url))
+          .catch(() => (img.alt = `${img.alt || src} (can't show it)`));
+      }
+    });
+  });
+
   // The selected project's branch and uncommitted files, for the status bar (looked at every 5s)
   let branchState = $state<{ name: string | null; ahead: number; behind: number; gone: boolean; changed: number } | null>(null);
   $effect(() => {
@@ -612,7 +632,7 @@
           <p class="empty">This thumbdeck doesn't have the extension "{t.extension}" (a newer version may).</p>
         {/if}
       {:else if details?.readme}
-        <article class="readme">{@html marked.parse(details.readme)}</article>
+        <article class="readme" bind:this={readmeEl}>{@html marked.parse(details.readme)}</article>
       {:else}
         <p class="empty">{details ? "No README in this project." : "Loading…"}</p>
       {/if}
@@ -923,6 +943,7 @@
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
   .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
+  .readme :global(img) { max-width: 100%; height: auto; border-radius: 6px; }
   .readme :global(h1), .readme :global(h2) { font-family: var(--mono); border-bottom: 1px solid var(--bg2); padding-bottom: 6px; }
   .readme :global(code) { font-family: var(--mono); background: var(--bg1); padding: 1px 5px; border-radius: 4px; color: var(--aqua); }
   .readme :global(pre) { background: var(--bg1); padding: 12px; border-radius: 8px; overflow: auto; }

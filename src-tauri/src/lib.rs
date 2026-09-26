@@ -100,6 +100,12 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
     Ok(project_list(&s))
 }
 
+/// An image a README shows, from the project's folder, as a data URL
+#[tauri::command]
+async fn readme_image(path: String, src: String) -> Result<String, String> {
+    projects::readme_image(Path::new(&path), &src)
+}
+
 #[tauri::command]
 async fn project_details(app: AppHandle, path: String) -> Details {
     details(&app, &path)
@@ -387,7 +393,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
+            logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
             git_status, git_diff, git_log, git_show, git_branches, git_stash, git_review, prs_diff])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
