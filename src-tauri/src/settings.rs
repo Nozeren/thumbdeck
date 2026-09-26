@@ -31,6 +31,9 @@ pub struct CustomAction {
     pub command: String,
     #[serde(default)]
     pub confirm: bool,
+    /// Run in this window of the project's tmux session instead of inside thumbdeck
+    #[serde(default)]
+    pub tmux: Option<String>,
 }
 
 /// Add a custom action, or replace the one with the same id. An empty id means a new action.
@@ -189,7 +192,7 @@ mod tests {
     #[test]
     fn custom_actions_are_added_edited_and_deleted() {
         let mut s = empty();
-        let new = |id: &str, name: &str| CustomAction { id: id.into(), name: name.into(), command: "echo".into(), confirm: false };
+        let new = |id: &str, name: &str| CustomAction { id: id.into(), name: name.into(), command: "echo".into(), confirm: false, tmux: None };
         save_action(&mut s, "/p".into(), new("", "Backup"));
         let id = s.custom["/p"][0].id.clone();
         assert!(!id.is_empty(), "a new action gets an id");
@@ -198,6 +201,12 @@ mod tests {
         assert_eq!(s.custom["/p"][0].name, "Backup DB");
         delete_action(&mut s, "/p", &id);
         assert!(!s.custom.contains_key("/p"), "empty projects are dropped");
+    }
+
+    #[test]
+    fn custom_actions_saved_before_tmux_still_load() {
+        let s: Settings = serde_json::from_str(r#"{"custom": {"/p": [{"id": "1", "name": "a", "command": "b"}]}}"#).unwrap();
+        assert_eq!(s.custom["/p"][0].tmux, None);
     }
 
     #[test]

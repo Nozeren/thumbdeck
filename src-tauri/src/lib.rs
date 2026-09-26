@@ -31,7 +31,7 @@ fn details(app: &AppHandle, path: &str) -> Details {
         group: "yours".into(),
         description: None,
         confirm: c.confirm,
-        tmux: None,
+        tmux: c.tmux,
     });
     let toolkit = actions::detect(&packs::load(), Path::new(path));
     let (hidden, shown): (Vec<_>, Vec<_>) =

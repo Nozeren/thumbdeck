@@ -221,13 +221,16 @@
 
   function openForm(a?: Action) {
     form = a
-      ? { id: a.id.replace(/^custom:/, ""), name: a.label, command: a.command, confirm: a.confirm }
-      : { id: "", name: "", command: "", confirm: false };
+      ? { id: a.id.replace(/^custom:/, ""), name: a.label, command: a.command, confirm: a.confirm, tmux: a.tmux }
+      : { id: "", name: "", command: "", confirm: false, tmux: null };
   }
 
   async function saveForm() {
     if (!form || !form.name.trim() || !form.command.trim()) return;
-    await editActions("save", "", { ...form, name: form.name.trim(), command: form.command.trim() });
+    const name = form.name.trim();
+    // An empty window name means: named after the action
+    const tmux = form.tmux === null ? null : form.tmux.trim() || name;
+    await editActions("save", "", { ...form, name, command: form.command.trim(), tmux });
     form = null;
   }
 
@@ -496,6 +499,14 @@
       </label>
       <p class="hint">Runs in {home(selected.path)} with your shell's environment.</p>
       <label class="check"><input type="checkbox" bind:checked={form.confirm} /> Ask before running</label>
+      <label class="check">
+        <input type="checkbox" checked={form.tmux !== null} onchange={(e) => (form!.tmux = e.currentTarget.checked ? "" : null)} />
+        Run in the project's tmux session (for servers, watchers, shells)
+      </label>
+      {#if form.tmux !== null}
+        <label>Window <input bind:value={form.tmux} placeholder={form.name.trim() || "named after the action"} /></label>
+        <p class="hint">Made if needed; if it's already running something, it's left alone.</p>
+      {/if}
       <div class="buttons">
         <button type="button" class="ghost" onclick={() => (form = null)}>Cancel</button>
         <button type="submit" class="primary" disabled={!form.name.trim() || !form.command.trim()}>Save</button>

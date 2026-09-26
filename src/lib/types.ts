@@ -40,6 +40,8 @@ export interface CustomAction {
   name: string;
   command: string;
   confirm: boolean;
+  /** Window of the project's tmux session to run in; null runs it inside thumbdeck */
+  tmux: string | null;
 }
 
 export interface Details {
