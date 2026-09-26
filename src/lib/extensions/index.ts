@@ -2,12 +2,15 @@
 // AVAILABLE in src-tauri/src/extensions/mod.rs). Adding an extension: a folder here with its two
 // components, a module there with its setup and commands, and one line in each list.
 import type { Component } from "svelte";
+import type { ReviewRequest } from "../review/types.ts";
 import LogViewer from "./logs/LogViewer.svelte";
 import LogsSetup from "./logs/SetupForm.svelte";
 import AgentsTab from "./agents/AgentsTab.svelte";
 import AgentsSetup from "./agents/SetupForm.svelte";
 import PrTab from "./prs/PrTab.svelte";
 import PrsSetup from "./prs/SetupForm.svelte";
+import GitTab from "./git/GitTab.svelte";
+import GitSetup from "./git/SetupForm.svelte";
 
 /** What every tab component is given */
 export interface TabProps {
@@ -27,6 +30,8 @@ export interface TabProps {
   onRelease: () => void;
   /** Opens the setup form */
   onEditSetup: () => void;
+  /** Opens the review page (a diff over the whole window) */
+  openReview: (request: ReviewRequest) => void;
 }
 
 /** What every tab component offers the page */
@@ -56,4 +61,5 @@ export const extensions: Record<string, ExtensionUi> = {
   logs: { tab: LogViewer, setup: LogsSetup },
   agents: { tab: AgentsTab, setup: AgentsSetup },
   prs: { tab: PrTab, setup: PrsSetup },
+  git: { tab: GitTab, setup: GitSetup },
 };

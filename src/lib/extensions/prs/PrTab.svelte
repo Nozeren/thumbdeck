@@ -10,7 +10,7 @@
   import { ago } from "../agents/format.ts";
   import { avatarSignals } from "../../avatar/signals.svelte.ts";
 
-  let { path, setup, active, say, onActivate, onRelease, onEditSetup }: Omit<TabProps, "setup"> & { setup: Setup } = $props();
+  let { path, setup, active, say, onActivate, onRelease, onEditSetup, openReview }: Omit<TabProps, "setup"> & { setup: Setup } = $props();
 
   let data = $state<PrList | null>(null);
   let error = $state("");
@@ -61,6 +61,17 @@
     }
   }
 
+  /** The review page for a PR's changes (fetched with gh, nothing is checked out) */
+  function reviewPr(p: Pr | undefined) {
+    if (!p || !data) return;
+    openReview({
+      title: `#${p.number} ${p.title}`,
+      subtitle: `@${p.author} · ${data.repo}${p.draft ? " · draft" : ""}`,
+      load: () => invoke<string>("prs_diff", { path, setup, number: p.number }),
+      viewedKey: `pr:${data.repo}#${p.number}`,
+    });
+  }
+
   let help = $state(false);
 
   export function handleKey(e: KeyboardEvent): boolean {
@@ -75,6 +86,7 @@
       case "g": move(0); break;
       case "G": move((data?.prs.length ?? 0) - 1); break;
       case "Enter": case "o": case "l": openPr(pr); break;
+      case "v": reviewPr(pr); break;
       case "r": refresh(); break;
       case "S": onEditSetup(); break;
       case "?": help = true; break;
@@ -138,7 +150,7 @@
       {:else}
         <div class="dim reviewer">No reviewers assigned</div>
       {/each}
-      <p class="dim url">{pr.url} · Enter: open in the browser</p>
+      <p class="dim url">{pr.url} · Enter: open in the browser · <button class="link" onclick={() => reviewPr(pr)}>v: review the changes</button></p>
     </section>
   {/if}
 
@@ -148,6 +160,7 @@
       <dl>
         <dt>j / k, g / G</dt><dd>down / up, first / last</dd>
         <dt>Enter, o</dt><dd>open in the browser (marks its 🔔 notification read)</dd>
+        <dt>v</dt><dd>review its changes side by side, over the whole window (nothing is checked out)</dd>
         <dt>r</dt><dd>refresh now (it refreshes every {setup.refresh_minutes} min on its own)</dd>
         <dt>S</dt><dd>set up this tab</dd>
         <dt>q, Esc</dt><dd>give the keyboard back to thumbdeck</dd>
@@ -196,6 +209,8 @@
   .state.APPROVED { color: var(--green); } .state.CHANGES_REQUESTED { color: var(--red); }
   .state.COMMENTED { color: var(--aqua); } .state.PENDING { color: var(--yellow); }
   .url { margin-top: 10px; word-break: break-all; }
+  .link { padding: 0; color: var(--orange); font: inherit; }
+  .link:hover { text-decoration: underline; }
 
   .overlay { position: absolute; inset: 0; background: var(--bg0); padding: 16px 20px; overflow: auto; z-index: 5; }
   .overlay dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }

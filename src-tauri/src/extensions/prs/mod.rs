@@ -181,6 +181,14 @@ fn demo(setup: &Setup) -> PrList {
     PrList { repo: "demo".into(), demo: true, prs: sort(&prs, &notifications, "me_corp", &setup), user: "me".into() }
 }
 
+/// A PR's changes as a unified diff (the demo's are made up)
+pub fn diff(repo: &str, number: u64) -> Result<String, String> {
+    if repo == "demo" {
+        return Ok(include_str!("testdata/demo.diff").to_string());
+    }
+    gh(&["pr", "diff", &number.to_string(), "-R", repo])
+}
+
 /// Mark a GitHub notification read
 pub fn mark_read(thread: &str) -> Result<(), String> {
     gh(&["api", "-X", "PATCH", &format!("notifications/threads/{thread}")]).map(|_| ())

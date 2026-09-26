@@ -7,6 +7,8 @@
   import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, Update } from "$lib/types";
   import { extensions, type TabExports } from "$lib/extensions";
   import Avatar from "$lib/avatar/Avatar.svelte";
+  import ReviewPage from "$lib/review/ReviewPage.svelte";
+  import type { ReviewRequest } from "$lib/review/types";
   import { pickMood } from "$lib/avatar/mood";
   import { avatarSignals } from "$lib/avatar/signals.svelte";
 
@@ -125,6 +127,12 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // The review page covers everything: all keys are its own (Esc and q close it)
+    if (review) {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
+      reviewRef?.handleKey(e);
+      return;
+    }
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
     const dialog = form || setupForm || helpOpen || updateDialog;
     // 1 README, 2… extension tabs
@@ -284,6 +292,8 @@
   let update = $state<Update | null>(null); // a newer release (checked on start)
 
   // ------------------------------------------------------------ the avatar (top bar)
+  let review = $state<ReviewRequest | null>(null); // the review page, over everything
+  let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean } | null>(null);
   let avatar = $state(""); // the character (settings); "none": no character
   let avatarRef = $state<{ pickCharacter(): void } | null>(null);
   let lastInput = $state(Date.now());
@@ -572,7 +582,7 @@
           {#key `${selected.path}:${shownTab}:${JSON.stringify(t.setup)}`}
             <ext.tab bind:this={tabRef} path={selected.path} project={selected.name} setup={t.setup} active={keysToTab} {say}
                      onActivate={() => (keysToTab = true)} onRelease={() => (keysToTab = false)}
-                     onEditSetup={() => (setupForm = { index: shownTab, tab: t })} />
+                     onEditSetup={() => (setupForm = { index: shownTab, tab: t })} openReview={(r) => (review = r)} />
           {/key}
         {:else}
           <p class="empty">This thumbdeck doesn't have the extension "{t.extension}" (a newer version may).</p>
@@ -706,6 +716,10 @@
 
 {#if toast}
   <div class="toast" class:error={toast.error}>{toast.text}</div>
+{/if}
+
+{#if review}
+  <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} />
 {/if}
 
 {#if helpOpen}

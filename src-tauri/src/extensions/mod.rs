@@ -4,6 +4,7 @@
 //! listed in AVAILABLE and in src/lib/extensions/index.ts.
 
 pub mod agents;
+pub mod git;
 pub mod logs;
 pub mod prs;
 
@@ -41,6 +42,12 @@ pub const AVAILABLE: &[Extension] = &[
         name: "Pull requests",
         description: "The repo's open PRs that concern you: to review again, to review, reviewed, yours",
         setup: complete_setup::<prs::Setup>,
+    },
+    Extension {
+        id: "git",
+        name: "Git",
+        description: "The repo at a glance: changes and their diffs, the branch, commits, branches and stashes (read-only)",
+        setup: complete_setup::<git::Setup>,
     },
 ];
 

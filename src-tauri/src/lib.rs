@@ -276,6 +276,13 @@ async fn prs_list(path: String, setup: prs::Setup) -> Result<prs::PrList, String
     prs::fetch(&repo, &setup)
 }
 
+/// A PR's diff for the review page (without checking it out)
+#[tauri::command]
+async fn prs_diff(path: String, setup: prs::Setup, number: u64) -> Result<String, String> {
+    let repo = prs::repo(Path::new(&path), &setup)?;
+    prs::diff(&repo, number)
+}
+
 /// Open a PR in the browser, marking its notification read
 #[tauri::command]
 async fn prs_open(app: AppHandle, url: String, notification: Option<String>) -> Result<(), String> {
@@ -285,6 +292,46 @@ async fn prs_open(app: AppHandle, url: String, notification: Option<String>) -> 
         prs::mark_read(&thread)?;
     }
     Ok(())
+}
+
+// ------------------------------------------------------------ git extension (read-only)
+
+use extensions::git;
+
+#[tauri::command]
+async fn git_status(path: String) -> Result<git::Status, String> {
+    git::status(Path::new(&path))
+}
+
+#[tauri::command]
+async fn git_diff(path: String, file: String, staged: bool, untracked: bool) -> Result<String, String> {
+    git::diff(Path::new(&path), &file, staged, untracked)
+}
+
+#[tauri::command]
+async fn git_log(path: String, count: usize) -> Result<Vec<git::Commit>, String> {
+    git::log(Path::new(&path), count)
+}
+
+#[tauri::command]
+async fn git_show(path: String, hash: String) -> Result<String, String> {
+    git::show(Path::new(&path), &hash)
+}
+
+#[tauri::command]
+async fn git_branches(path: String) -> Result<git::Branches, String> {
+    git::branches(Path::new(&path))
+}
+
+/// A whole diff for the review page: "changes", a commit hash, or a stash name
+#[tauri::command]
+async fn git_review(path: String, what: String) -> Result<String, String> {
+    git::review(Path::new(&path), &what)
+}
+
+#[tauri::command]
+async fn git_stash(path: String, name: String) -> Result<String, String> {
+    git::stash(Path::new(&path), &name)
 }
 
 // ------------------------------------------------------------ updates
@@ -340,7 +387,8 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live])
+            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
+            git_status, git_diff, git_log, git_show, git_branches, git_stash, git_review, prs_diff])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             Ok(())
