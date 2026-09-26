@@ -3,9 +3,12 @@
   import { listen } from "@tauri-apps/api/event";
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
-  import type { Action, Details, Project, Run } from "$lib/types";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import type { Action, Details, Project, ProjectList, Run } from "$lib/types";
 
   let projects = $state<Project[]>([]);
+  let roots = $state<string[]>([]);
+  let showHidden = $state(false);
   let filter = $state("");
   let selected = $state<Project | null>(null);
   let details = $state<Details | null>(null);
@@ -17,8 +20,33 @@
   const mac = navigator.userAgent.includes("Mac");
 
   const visible = $derived(
-    projects.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase())),
+    projects.filter((p) => !p.hidden && p.name.toLowerCase().includes(filter.toLowerCase())),
   );
+  const hidden = $derived(projects.filter((p) => p.hidden));
+
+  const home = (path: string) => path.replace(/^\/(home|Users)\/[^/]+/, "~");
+
+  function applyList(list: ProjectList) {
+    projects = list.projects;
+    roots = list.roots;
+    // Keep the selection if it's still visible, otherwise pick the first project
+    const still = selected && projects.find((p) => p.path === selected!.path && !p.hidden);
+    if (!still) {
+      const first = projects.find((p) => !p.hidden);
+      if (first) select(first);
+      else selected = null;
+    }
+  }
+
+  async function edit(change: string, path: string) {
+    applyList(await invoke<ProjectList>("edit_projects", { change, path }));
+  }
+
+  async function pickFolder(change: "add" | "add-root") {
+    const title = change === "add" ? "Add a project folder" : "Add a folder to scan for projects";
+    const path = await open({ directory: true, title });
+    if (typeof path === "string") await edit(change, path);
+  }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
   // Toolkit grouped by where each action came from (npm, django, compose, ...)
@@ -60,10 +88,7 @@
   }
 
   onMount(() => {
-    invoke<Project[]>("list_projects").then((ps) => {
-      projects = ps;
-      if (ps.length) select(ps[0]);
-    });
+    invoke<ProjectList>("list_projects").then(applyList);
     const unlistenOut = listen<{ id: number; line: string; stderr: boolean }>("run-output", async (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (!r) return;
@@ -96,15 +121,50 @@
     <header class="app" data-tauri-drag-region>thumbdeck</header>
     <input class="filter" placeholder="Filter projects…" bind:value={filter} />
     <section class="card helm">
-      <h2><span class="dot purple"></span>Projects <span class="count">{projects.length}</span></h2>
+      <h2>
+        <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
+        <button class="icon" title="Add a project folder" onclick={() => pickFolder("add")}>+</button>
+      </h2>
       <ul>
         {#each visible as p (p.path)}
-          <li>
-            <button class:active={selected?.path === p.path} onclick={() => select(p)}>
+          <li class="project">
+            <button class="pick" class:active={selected?.path === p.path} onclick={() => select(p)}>
               <span class="name">{p.name}</span>
               {#if p.dirty}<span class="changes" title="uncommitted changes"></span>{/if}
               {#if p.branch}<span class="branch"> {p.branch}</span>{/if}
             </button>
+            <button class="icon hide" title={p.added ? "Remove from the list" : "Hide"}
+                    onclick={() => edit("remove", p.path)}>×</button>
+          </li>
+        {/each}
+      </ul>
+      {#if hidden.length}
+        <button class="fold" onclick={() => (showHidden = !showHidden)}>
+          {showHidden ? "▾" : "▸"} Hidden ({hidden.length})
+        </button>
+        {#if showHidden}
+          <ul class="muted">
+            {#each hidden as p (p.path)}
+              <li class="project">
+                <span class="name">{p.name}</span>
+                <button class="icon" title="Show again" onclick={() => edit("unhide", p.path)}>↺</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="card roots">
+      <h2>
+        <span class="dot blue"></span>Scan folders
+        <button class="icon" title="Add a folder to scan" onclick={() => pickFolder("add-root")}>+</button>
+      </h2>
+      <ul>
+        {#each roots as r (r)}
+          <li class="project">
+            <span class="name">{home(r)}</span>
+            <button class="icon hide" title="Stop scanning this folder" onclick={() => edit("remove-root", r)}>×</button>
           </li>
         {/each}
       </ul>
@@ -115,7 +175,7 @@
   <section class="panel center">
     {#if selected}
       <nav class="crumbs">
-        <span>{selected.path.replace(/^\/(home|Users)\/[^/]+/, "~").split("/").slice(0, -1).join(" / ")}</span>
+        <span>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
         <span> / </span><strong>{selected.name}</strong>
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
         <span class="spacer"></span>
@@ -215,9 +275,19 @@
   .filter:focus { border-color: var(--purple); }
   .helm { flex: 1; overflow: auto; }
   .helm ul { list-style: none; margin: 0; padding: 0; }
-  .helm li button { width: 100%; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border-radius: 8px; }
-  .helm li button:hover { background: var(--bg1); }
-  .helm li button.active { background: var(--bg2); }
+  .project { display: flex; align-items: center; gap: 4px; }
+  .pick { flex: 1; min-width: 0; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border-radius: 8px; }
+  .pick:hover { background: var(--bg1); }
+  .pick.active { background: var(--bg2); }
+  .icon { margin-left: auto; width: 22px; height: 22px; border-radius: 6px; color: var(--grey); font: 14px var(--mono); }
+  .icon:hover { background: var(--bg2); color: var(--fg); }
+  .project .hide { opacity: 0; }
+  .project:hover .hide { opacity: 1; }
+  .fold { margin-top: 8px; font: 12px var(--mono); color: var(--grey); padding: 4px 8px; }
+  .muted .project { padding: 3px 8px; color: var(--grey); }
+  .roots ul { list-style: none; margin: 0; padding: 0; }
+  .roots .project { padding: 3px 8px; }
+  .dot.blue { background: var(--blue); }
   .name { font: 13px var(--mono); }
   .changes { width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
   .helm .branch { flex-basis: 100%; font-size: 11px; }

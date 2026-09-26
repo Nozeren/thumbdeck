@@ -3,6 +3,15 @@ export interface Project {
   path: string;
   branch: string | null;
   dirty: boolean;
+  /** Added by hand rather than found in a scan folder */
+  added: boolean;
+  hidden: boolean;
+}
+
+export interface ProjectList {
+  projects: Project[];
+  /** Folders scanned for git repositories */
+  roots: string[];
 }
 
 export interface Action {

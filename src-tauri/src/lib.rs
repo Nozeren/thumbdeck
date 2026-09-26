@@ -1,6 +1,7 @@
 mod actions;
 mod projects;
 mod runner;
+mod settings;
 
 use serde::Serialize;
 use std::path::Path;
@@ -12,9 +13,33 @@ struct Details {
     readme: Option<String>,
 }
 
+#[derive(Serialize)]
+struct ProjectList {
+    projects: Vec<projects::Project>,
+    roots: Vec<String>,
+}
+
+fn project_list(s: &settings::Settings) -> ProjectList {
+    ProjectList { projects: projects::list(&s.roots, &s.added, &s.hidden), roots: s.roots.clone() }
+}
+
 #[tauri::command]
-async fn list_projects() -> Vec<projects::Project> {
-    projects::scan(&projects::default_roots())
+async fn list_projects(app: AppHandle) -> ProjectList {
+    project_list(&settings::load(&app))
+}
+
+/// Change the project list settings; returns the new list.
+#[tauri::command]
+async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<ProjectList, String> {
+    let s = settings::update(&app, |s| match change.as_str() {
+        "add" => settings::add_project(s, path),
+        "remove" => settings::remove_project(s, path),
+        "unhide" => settings::unhide_project(s, &path),
+        "add-root" => settings::add_root(s, path),
+        "remove-root" => settings::remove_root(s, &path),
+        _ => {}
+    })?;
+    Ok(project_list(&s))
 }
 
 #[tauri::command]
@@ -38,8 +63,9 @@ pub fn run() {
     runner::preload_env();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(runner::Runs::default())
-        .invoke_handler(tauri::generate_handler![list_projects, project_details, run_action, stop_run])
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, run_action, stop_run])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

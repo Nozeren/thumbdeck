@@ -11,6 +11,21 @@ pub struct Project {
     pub branch: Option<String>,
     /// Uncommitted changes in the working tree
     pub dirty: bool,
+    /// Added by hand rather than found in a scanned folder
+    pub added: bool,
+    pub hidden: bool,
+}
+
+pub fn info(path: &Path, added: bool, hidden: bool) -> Project {
+    let git_repo = path.join(".git").exists();
+    Project {
+        name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        path: path.to_string_lossy().to_string(),
+        branch: git_repo.then(|| git(path, &["rev-parse", "--abbrev-ref", "HEAD"])).flatten(),
+        dirty: git_repo && git(path, &["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
+        added,
+        hidden,
+    }
 }
 
 /// Folders searched for projects when nothing else is configured.
@@ -23,28 +38,34 @@ pub fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-/// Git repositories one level below each root, sorted by name.
-pub fn scan(roots: &[PathBuf]) -> Vec<Project> {
-    let mut found: Vec<Project> = Vec::new();
+/// Git repositories one level below each root, plus the folders added by hand, sorted by name.
+/// Hidden ones are included (marked), so the app can offer to show them again.
+pub fn list(roots: &[String], added: &[String], hidden: &[String]) -> Vec<Project> {
+    let mut paths: Vec<(PathBuf, bool)> = Vec::new();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(root) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
-            let hidden = entry.file_name().to_string_lossy().starts_with('.');
-            if hidden || !path.is_dir() || !path.join(".git").exists() {
-                continue;
+            let dotfolder = entry.file_name().to_string_lossy().starts_with('.');
+            if !dotfolder && path.is_dir() && path.join(".git").exists() {
+                paths.push((path, false));
             }
-            let path_str = path.to_string_lossy().to_string();
-            if found.iter().any(|p| p.path == path_str) {
-                continue;
-            }
-            found.push(Project {
-                name: entry.file_name().to_string_lossy().to_string(),
-                branch: git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]),
-                dirty: git(&path, &["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
-                path: path_str,
-            });
         }
+    }
+    for path in added {
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            paths.push((path, true));
+        }
+    }
+
+    let mut found: Vec<Project> = Vec::new();
+    for (path, is_added) in paths {
+        let path_str = path.to_string_lossy().to_string();
+        if found.iter().any(|p| p.path == path_str) {
+            continue;
+        }
+        found.push(info(&path, is_added, hidden.contains(&path_str)));
     }
     found.sort_by_key(|p| p.name.to_lowercase());
     found
