@@ -8,6 +8,7 @@
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
+  // Folded sections of the tree (not saved: each start folds all but the one in use)
   let collapsed = $state<string[]>([]);
   let addMenu = $state(false);
   let filter = $state("");
@@ -46,17 +47,30 @@
 
   const home = (path: string) => path.replace(/^\/(home|Users)\/[^/]+/, "~");
 
-  function applyList(list: ProjectList) {
+  // Section of the tree a project sits in
+  const sectionOf = (p: Project) => p.root ?? "added";
+
+  function applyList(list: ProjectList, starting = false) {
     projects = list.projects;
     roots = list.roots;
-    collapsed = list.collapsed;
-    // Keep the selection if it's still visible, otherwise pick the first project
-    const still = selected && projects.find((p) => p.path === selected!.path && !p.hidden);
-    if (!still) {
-      const first = projects.find((p) => !p.hidden);
-      if (first) select(first);
-      else selected = null;
+    const shown = projects.filter((p) => !p.hidden);
+    // Keep the selection if it's still visible; on start, reopen the last project used
+    let next = selected && shown.find((p) => p.path === selected!.path);
+    if (starting) {
+      next = shown.find((p) => p.path === list.last) ?? shown.find((p) => p.pinned) ?? shown[0];
+      // Fold every section except Pinned and the one the project is in
+      const inUse = next ? sectionOf(next) : null;
+      collapsed = [...roots, "added", "hidden"].filter((id) => id !== inUse);
     }
+    if (next) {
+      if (next.path !== selected?.path) select(next);
+    } else {
+      selected = null;
+    }
+  }
+
+  function toggleFold(id: string) {
+    collapsed = collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id];
   }
 
   async function edit(change: string, path: string) {
@@ -80,6 +94,7 @@
 
   async function select(p: Project) {
     selected = p;
+    invoke("edit_projects", { change: "last", path: p.path }); // remembered for the next start
     shownRun = null;
     details = null;
     details = await invoke<Details>("project_details", { path: p.path });
@@ -110,7 +125,7 @@
   }
 
   onMount(() => {
-    invoke<ProjectList>("list_projects").then(applyList);
+    invoke<ProjectList>("list_projects").then((list) => applyList(list, true));
     const unlistenOut = listen<{ id: number; line: string; stderr: boolean }>("run-output", async (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (!r) return;
@@ -158,7 +173,7 @@
       {#each sections as sec (sec.id)}
         <div class="section">
           <div class="section-head">
-            <button class="fold" onclick={() => edit("fold", sec.id)}>
+            <button class="fold" onclick={() => toggleFold(sec.id)}>
               <span class="caret">{folded(sec.id) ? "▸" : "▾"}</span>{sec.label}
               <span class="n">{sec.items.length}</span>
             </button>

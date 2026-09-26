@@ -15,8 +15,8 @@ export interface ProjectList {
   projects: Project[];
   /** Folders scanned for git repositories */
   roots: string[];
-  /** Folded sections of the tree: "pinned", "added", "hidden" or a scan folder */
-  collapsed: string[];
+  /** Project selected last, reopened on start */
+  last: string | null;
 }
 
 export interface Action {

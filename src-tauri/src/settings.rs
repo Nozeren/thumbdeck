@@ -15,8 +15,8 @@ pub struct Settings {
     pub hidden: Vec<String>,
     /// Projects shown in the Pinned section at the top
     pub pinned: Vec<String>,
-    /// Folded sections of the project tree ("pinned", "added", "hidden" or a scan folder)
-    pub collapsed: Vec<String>,
+    /// Project selected last, reopened on start
+    pub last: Option<String>,
 }
 
 impl Default for Settings {
@@ -25,7 +25,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], collapsed: vec![] }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None }
     }
 }
 
@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], collapsed: vec![] }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None }
     }
 
     #[test]

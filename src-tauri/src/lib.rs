@@ -17,14 +17,14 @@ struct Details {
 struct ProjectList {
     projects: Vec<projects::Project>,
     roots: Vec<String>,
-    collapsed: Vec<String>,
+    last: Option<String>,
 }
 
 fn project_list(s: &settings::Settings) -> ProjectList {
     ProjectList {
         projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned),
         roots: s.roots.clone(),
-        collapsed: s.collapsed.clone(),
+        last: s.last.clone(),
     }
 }
 
@@ -43,7 +43,7 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
         "add-root" => settings::add_root(s, path),
         "remove-root" => settings::remove_root(s, &path),
         "pin" => settings::toggle(&mut s.pinned, path),
-        "fold" => settings::toggle(&mut s.collapsed, path),
+        "last" => s.last = Some(path),
         _ => {}
     })?;
     Ok(project_list(&s))
