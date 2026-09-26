@@ -3,6 +3,7 @@
   // with levels, search, error jumps, live tail, optional sections and a detail view of one
   // entry. Keys come through handleKey() while the tab has the keyboard.
   import { invoke } from "@tauri-apps/api/core";
+  import { avatarSignals } from "../../avatar/signals.svelte.ts";
   import { tick } from "svelte";
   import type { Log, LogFile, Setup, Summary } from "./types.ts";
   import type { TabProps } from "../index.ts";
@@ -93,9 +94,19 @@
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - 10));
   const shown = $derived(list.slice(first, first + Math.ceil(height / ROW) + 20));
 
+  /** Read a log; the octopus in the top bar reads along */
+  async function readLog(file: string): Promise<Log> {
+    avatarSignals.logsReading++;
+    try {
+      return await invoke<Log>("logs_open", { file, setup });
+    } finally {
+      avatarSignals.logsReading--;
+    }
+  }
+
   async function openLog(f: LogFile) {
     try {
-      const loaded = await invoke<Log>("logs_open", { file: f.path, setup });
+      const loaded = await readLog(f.path);
       file = f;
       log = loaded;
       opened = new Set();
@@ -124,7 +135,7 @@
     if (!file) return;
     const atEnd = list.length > 0 && cursor === list.length - 1;
     try {
-      log = await invoke<Log>("logs_open", { file: file.path, setup });
+      log = await readLog(file.path);
     } catch (err) {
       say(String(err), true);
       return;

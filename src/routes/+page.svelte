@@ -6,6 +6,9 @@
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, Update } from "$lib/types";
   import { extensions, type TabExports } from "$lib/extensions";
+  import Octopus from "$lib/avatar/Octopus.svelte";
+  import { pickMood } from "$lib/avatar/mood";
+  import { avatarSignals } from "$lib/avatar/signals.svelte";
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
@@ -278,6 +281,39 @@
   // Clone / pull the packs repository, then show what the new packs detect
   // ------------------------------------------------------------ updates
   let update = $state<Update | null>(null); // a newer release (checked on start)
+
+  // ------------------------------------------------------------ the octopus
+  let lastInput = $state(Date.now());
+  let claudeLive = $state<{ project: string; status: string }[]>([]);
+  $effect(() => {
+    const look = () =>
+      invoke<{ cwd: string; status: string }[]>("claude_live")
+        .then((l) => (claudeLive = l.map((c) => ({ project: c.cwd.split("/").filter(Boolean).at(-1) ?? c.cwd, status: c.status }))))
+        .catch(() => (claudeLive = []));
+    look();
+    const timer = setInterval(look, 4000);
+    const input = () => (lastInput = Date.now());
+    window.addEventListener("keydown", input, true);
+    window.addEventListener("pointerdown", input, true);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("keydown", input, true);
+      window.removeEventListener("pointerdown", input, true);
+    };
+  });
+  const octopus = $derived(
+    pickMood(
+      {
+        runs,
+        claude: claudeLive,
+        logsReading: avatarSignals.logsReading > 0,
+        prsToReview: avatarSignals.prsToReview,
+        update: update?.version ?? null,
+        lastInput,
+      },
+      now,
+    ),
+  );
   let updateDialog = $state(false);
   let updateState = $state<"idle" | "installing" | "installed">("idle");
   let updateError = $state("");
@@ -447,7 +483,7 @@
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
     <header class="app" data-tauri-drag-region>
-      thumbdeck
+      thumbdeck <Octopus mood={octopus.mood} caption={octopus.caption} />
       {#if update}
         <button class="update-dot" title="thumbdeck {update.version} is available" onclick={() => (updateDialog = true)}>● {update.version}</button>
       {/if}
@@ -784,7 +820,7 @@
   .branch { color: var(--purple); font: 12px var(--mono); }
 
   /* left */
-  .app { font: 700 16px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
+  .app { font: 700 22px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
   .update-dot { padding: 1px 8px; border-radius: 10px; background: var(--bg1); color: var(--green); font: 600 11px var(--mono); }
   .update-dot:hover { background: var(--bg2); }
   .notes { max-height: 40vh; padding: 0 4px; font-size: 13px; }

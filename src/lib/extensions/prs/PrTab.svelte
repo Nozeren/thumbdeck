@@ -8,6 +8,7 @@
   import type { Pr, PrList, Setup } from "./types.ts";
   import { categoryLabel, checksText, isStale, reviewText } from "./format.ts";
   import { ago } from "../agents/format.ts";
+  import { avatarSignals } from "../../avatar/signals.svelte.ts";
 
   let { path, setup, active, say, onActivate, onRelease, onEditSetup }: Omit<TabProps, "setup"> & { setup: Setup } = $props();
 
@@ -22,6 +23,8 @@
     loading = true;
     try {
       data = await invoke<PrList>("prs_list", { path, setup });
+      // The octopus in the top bar holds up a sign while PRs wait for your review
+      avatarSignals.prsToReview = data.prs.filter((p) => p.category === "review" || p.category === "re-review").length;
       error = "";
       cursor = Math.min(cursor, Math.max(0, data.prs.length - 1));
     } catch (err) {

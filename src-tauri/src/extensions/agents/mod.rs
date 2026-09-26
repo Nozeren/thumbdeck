@@ -5,6 +5,7 @@
 //! skipped, and a file it can't read is reported, not guessed at.
 
 pub mod defined;
+pub mod live;
 pub mod sessions;
 pub mod skills;
 pub mod transcript;

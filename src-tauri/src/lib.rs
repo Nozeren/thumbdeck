@@ -251,6 +251,12 @@ async fn agents_start(path: String, name: String, kind: String, agent: String, t
     Ok(message)
 }
 
+/// The Claude Code sessions running now, in any project (for the avatar)
+#[tauri::command]
+async fn claude_live() -> Vec<agents::live::Live> {
+    agents::claude_home().map(|h| agents::live::list(&h)).unwrap_or_default()
+}
+
 /// A session's or subagent's conversation
 #[tauri::command]
 async fn agents_transcript(file: String) -> Result<Vec<agents::transcript::Entry>, String> {
@@ -331,7 +337,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open])
+            logs_summary, logs_size, check_update, install_update, restart, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             Ok(())
