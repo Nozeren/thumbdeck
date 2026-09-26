@@ -11,6 +11,15 @@
   // Folded sections of the tree (not saved: each start folds all but the one in use)
   let collapsed = $state<string[]>([]);
   let addMenu = $state(false);
+  let addMenuEl = $state<HTMLElement | null>(null);
+
+  // Close the + menu on a click anywhere else, or on Esc
+  function closeMenuOutside(e: MouseEvent) {
+    if (addMenu && addMenuEl && !addMenuEl.contains(e.target as Node)) addMenu = false;
+  }
+  function closeMenuOnEsc(e: KeyboardEvent) {
+    if (e.key === "Escape") addMenu = false;
+  }
   let filter = $state("");
   let selected = $state<Project | null>(null);
   let details = $state<Details | null>(null);
@@ -151,6 +160,7 @@
   });
 </script>
 
+<svelte:window onclick={closeMenuOutside} onkeydown={closeMenuOnEsc} />
 <div class="drag" data-tauri-drag-region></div>
 <main class:mac>
   <!-- ------------------------------------------------------------ projects -->
@@ -160,7 +170,7 @@
     <section class="card helm">
       <h2>
         <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
-        <span class="menu-anchor">
+        <span class="menu-anchor" bind:this={addMenuEl}>
           <button class="icon" title="Add…" onclick={() => (addMenu = !addMenu)}>+</button>
           {#if addMenu}
             <div class="menu">
