@@ -13,6 +13,10 @@ pub struct Settings {
     pub added: Vec<String>,
     /// Projects left out of the list
     pub hidden: Vec<String>,
+    /// Projects shown in the Pinned section at the top
+    pub pinned: Vec<String>,
+    /// Folded sections of the project tree ("pinned", "added", "hidden" or a scan folder)
+    pub collapsed: Vec<String>,
 }
 
 impl Default for Settings {
@@ -21,7 +25,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![] }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], collapsed: vec![] }
     }
 }
 
@@ -68,6 +72,7 @@ pub fn add_project(s: &mut Settings, path: String) {
 
 /// Added projects are removed; scanned ones are hidden (they'd come back on the next scan).
 pub fn remove_project(s: &mut Settings, path: String) {
+    s.pinned.retain(|p| p != &path);
     if s.added.contains(&path) {
         s.added.retain(|p| p != &path);
     } else {
@@ -77,6 +82,14 @@ pub fn remove_project(s: &mut Settings, path: String) {
 
 pub fn unhide_project(s: &mut Settings, path: &str) {
     s.hidden.retain(|p| p != path);
+}
+
+pub fn toggle(list: &mut Vec<String>, value: String) {
+    if list.contains(&value) {
+        list.retain(|v| v != &value);
+    } else {
+        list.push(value);
+    }
 }
 
 pub fn add_root(s: &mut Settings, path: String) {
@@ -92,7 +105,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![] }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], collapsed: vec![] }
     }
 
     #[test]
@@ -123,6 +136,15 @@ mod tests {
         assert!(s.hidden.is_empty());
         assert_eq!(s.added, vec!["/p/a"]);
         assert_eq!(s.roots, vec!["/r"]);
+    }
+
+    #[test]
+    fn toggle_adds_then_removes() {
+        let mut s = empty();
+        toggle(&mut s.pinned, "/p/a".into());
+        assert_eq!(s.pinned, vec!["/p/a"]);
+        toggle(&mut s.pinned, "/p/a".into());
+        assert!(s.pinned.is_empty());
     }
 
     #[test]

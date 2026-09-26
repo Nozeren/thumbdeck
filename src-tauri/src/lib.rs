@@ -17,10 +17,15 @@ struct Details {
 struct ProjectList {
     projects: Vec<projects::Project>,
     roots: Vec<String>,
+    collapsed: Vec<String>,
 }
 
 fn project_list(s: &settings::Settings) -> ProjectList {
-    ProjectList { projects: projects::list(&s.roots, &s.added, &s.hidden), roots: s.roots.clone() }
+    ProjectList {
+        projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned),
+        roots: s.roots.clone(),
+        collapsed: s.collapsed.clone(),
+    }
 }
 
 #[tauri::command]
@@ -37,6 +42,8 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
         "unhide" => settings::unhide_project(s, &path),
         "add-root" => settings::add_root(s, path),
         "remove-root" => settings::remove_root(s, &path),
+        "pin" => settings::toggle(&mut s.pinned, path),
+        "fold" => settings::toggle(&mut s.collapsed, path),
         _ => {}
     })?;
     Ok(project_list(&s))

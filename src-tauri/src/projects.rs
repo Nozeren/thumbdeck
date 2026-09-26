@@ -11,20 +11,50 @@ pub struct Project {
     pub branch: Option<String>,
     /// Uncommitted changes in the working tree
     pub dirty: bool,
-    /// Added by hand rather than found in a scanned folder
-    pub added: bool,
+    /// Scan folder it was found in; None when added by hand
+    pub root: Option<String>,
+    /// What kind of project it looks like (for its icon): django, android, tauri, node, rust,
+    /// go, nvim, python or folder
+    pub kind: String,
     pub hidden: bool,
+    pub pinned: bool,
 }
 
-pub fn info(path: &Path, added: bool, hidden: bool) -> Project {
+fn kind(dir: &Path) -> &'static str {
+    let has = |f: &str| dir.join(f).exists();
+    let name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if has("manage.py") {
+        "django"
+    } else if has("gradlew") || has("build.gradle") || has("build.gradle.kts") {
+        "android"
+    } else if has("src-tauri") {
+        "tauri"
+    } else if has("package.json") {
+        "node"
+    } else if has("Cargo.toml") {
+        "rust"
+    } else if has("go.mod") {
+        "go"
+    } else if name.ends_with(".nvim") || (has("lua") && has("plugin")) {
+        "nvim"
+    } else if has("pyproject.toml") || has("requirements.txt") || has("setup.py") {
+        "python"
+    } else {
+        "folder"
+    }
+}
+
+pub fn info(path: &Path, root: Option<String>, hidden: bool, pinned: bool) -> Project {
     let git_repo = path.join(".git").exists();
     Project {
         name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
         path: path.to_string_lossy().to_string(),
         branch: git_repo.then(|| git(path, &["rev-parse", "--abbrev-ref", "HEAD"])).flatten(),
         dirty: git_repo && git(path, &["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
-        added,
+        root,
+        kind: kind(path).to_string(),
         hidden,
+        pinned,
     }
 }
 
@@ -40,32 +70,32 @@ pub fn dirs_home() -> Option<PathBuf> {
 
 /// Git repositories one level below each root, plus the folders added by hand, sorted by name.
 /// Hidden ones are included (marked), so the app can offer to show them again.
-pub fn list(roots: &[String], added: &[String], hidden: &[String]) -> Vec<Project> {
-    let mut paths: Vec<(PathBuf, bool)> = Vec::new();
+pub fn list(roots: &[String], added: &[String], hidden: &[String], pinned: &[String]) -> Vec<Project> {
+    let mut paths: Vec<(PathBuf, Option<String>)> = Vec::new();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(root) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
             let dotfolder = entry.file_name().to_string_lossy().starts_with('.');
             if !dotfolder && path.is_dir() && path.join(".git").exists() {
-                paths.push((path, false));
+                paths.push((path, Some(root.clone())));
             }
         }
     }
     for path in added {
         let path = PathBuf::from(path);
         if path.is_dir() {
-            paths.push((path, true));
+            paths.push((path, None));
         }
     }
 
     let mut found: Vec<Project> = Vec::new();
-    for (path, is_added) in paths {
+    for (path, root) in paths {
         let path_str = path.to_string_lossy().to_string();
         if found.iter().any(|p| p.path == path_str) {
             continue;
         }
-        found.push(info(&path, is_added, hidden.contains(&path_str)));
+        found.push(info(&path, root, hidden.contains(&path_str), pinned.contains(&path_str)));
     }
     found.sort_by_key(|p| p.name.to_lowercase());
     found

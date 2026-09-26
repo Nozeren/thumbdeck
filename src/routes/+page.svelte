@@ -8,7 +8,8 @@
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
-  let showHidden = $state(false);
+  let collapsed = $state<string[]>([]);
+  let addMenu = $state(false);
   let filter = $state("");
   let selected = $state<Project | null>(null);
   let details = $state<Details | null>(null);
@@ -22,13 +23,33 @@
   const visible = $derived(
     projects.filter((p) => !p.hidden && p.name.toLowerCase().includes(filter.toLowerCase())),
   );
-  const hidden = $derived(projects.filter((p) => p.hidden));
+  // The Helm tree: Pinned, one section per scan folder, Added, Hidden
+  const sections = $derived.by(() => {
+    const match = (p: Project) => p.name.toLowerCase().includes(filter.toLowerCase());
+    const shown = projects.filter((p) => !p.hidden && match(p));
+    const list = [
+      { id: "pinned", label: "★ Pinned", root: null as string | null, items: shown.filter((p) => p.pinned) },
+      ...roots.map((r) => ({ id: r, label: home(r), root: r as string | null, items: shown.filter((p) => p.root === r) })),
+      { id: "added", label: "Added", root: null, items: shown.filter((p) => p.root === null) },
+      { id: "hidden", label: "Hidden", root: null, items: projects.filter((p) => p.hidden && match(p)) },
+    ];
+    // Scan folders always show (so they can be removed); the others only when they have projects
+    return list.filter((sec) => sec.items.length > 0 || sec.root !== null);
+  });
+  const folded = (id: string) => collapsed.includes(id) && !filter;
+
+  const icons: Record<string, [string, string]> = {
+    django: ["", "green"], python: ["", "yellow"], android: ["", "aqua"],
+    node: ["", "green"], tauri: ["", "orange"], rust: ["", "orange"],
+    go: ["", "blue"], nvim: ["", "green"], folder: ["", "grey"],
+  };
 
   const home = (path: string) => path.replace(/^\/(home|Users)\/[^/]+/, "~");
 
   function applyList(list: ProjectList) {
     projects = list.projects;
     roots = list.roots;
+    collapsed = list.collapsed;
     // Keep the selection if it's still visible, otherwise pick the first project
     const still = selected && projects.find((p) => p.path === selected!.path && !p.hidden);
     if (!still) {
@@ -43,6 +64,7 @@
   }
 
   async function pickFolder(change: "add" | "add-root") {
+    addMenu = false;
     const title = change === "add" ? "Add a project folder" : "Add a folder to scan for projects";
     const path = await open({ directory: true, title });
     if (typeof path === "string") await edit(change, path);
@@ -122,52 +144,53 @@
     <input class="filter" placeholder="Filter projects…" bind:value={filter} />
     <section class="card helm">
       <h2>
-        <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
-        <button class="icon" title="Add a project folder" onclick={() => pickFolder("add")}>+</button>
+        <span class="dot purple"></span>Helm <span class="count">{visible.length}</span>
+        <span class="menu-anchor">
+          <button class="icon" title="Add…" onclick={() => (addMenu = !addMenu)}>+</button>
+          {#if addMenu}
+            <div class="menu">
+              <button onclick={() => pickFolder("add")}>Add project…</button>
+              <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
+            </div>
+          {/if}
+        </span>
       </h2>
-      <ul>
-        {#each visible as p (p.path)}
-          <li class="project">
-            <button class="pick" class:active={selected?.path === p.path} onclick={() => select(p)}>
-              <span class="name">{p.name}</span>
-              {#if p.dirty}<span class="changes" title="uncommitted changes"></span>{/if}
-              {#if p.branch}<span class="branch"> {p.branch}</span>{/if}
+      {#each sections as sec (sec.id)}
+        <div class="section">
+          <div class="section-head">
+            <button class="fold" onclick={() => edit("fold", sec.id)}>
+              <span class="caret">{folded(sec.id) ? "▸" : "▾"}</span>{sec.label}
+              <span class="n">{sec.items.length}</span>
             </button>
-            <button class="icon hide" title={p.added ? "Remove from the list" : "Hide"}
-                    onclick={() => edit("remove", p.path)}>×</button>
-          </li>
-        {/each}
-      </ul>
-      {#if hidden.length}
-        <button class="fold" onclick={() => (showHidden = !showHidden)}>
-          {showHidden ? "▾" : "▸"} Hidden ({hidden.length})
-        </button>
-        {#if showHidden}
-          <ul class="muted">
-            {#each hidden as p (p.path)}
-              <li class="project">
-                <span class="name">{p.name}</span>
-                <button class="icon" title="Show again" onclick={() => edit("unhide", p.path)}>↺</button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      {/if}
-    </section>
-
-    <section class="card roots">
-      <h2>
-        <span class="dot blue"></span>Scan folders
-        <button class="icon" title="Add a folder to scan" onclick={() => pickFolder("add-root")}>+</button>
-      </h2>
-      <ul>
-        {#each roots as r (r)}
-          <li class="project">
-            <span class="name">{home(r)}</span>
-            <button class="icon hide" title="Stop scanning this folder" onclick={() => edit("remove-root", r)}>×</button>
-          </li>
-        {/each}
-      </ul>
+            {#if sec.root}
+              <button class="icon hide" title="Stop scanning this folder" onclick={() => edit("remove-root", sec.root!)}>×</button>
+            {/if}
+          </div>
+          {#if !folded(sec.id)}
+            <ul>
+              {#each sec.items as p (p.path)}
+                {@const [glyph, color] = icons[p.kind] ?? icons.folder}
+                <li class="project" class:muted={p.hidden}>
+                  <button class="pick" class:active={selected?.path === p.path && !p.hidden}
+                          disabled={p.hidden} onclick={() => select(p)}>
+                    <span class="kind" style="color: var(--{color})">{glyph}</span>
+                    <span class="name">{p.name}</span>
+                    {#if p.dirty}<span class="changes" title="uncommitted changes"></span>{/if}
+                  </button>
+                  {#if p.hidden}
+                    <button class="icon" title="Show again" onclick={() => edit("unhide", p.path)}>↺</button>
+                  {:else}
+                    <button class="icon hide star" class:on={p.pinned} title={p.pinned ? "Unpin" : "Pin"}
+                            onclick={() => edit("pin", p.path)}>{p.pinned ? "★" : "☆"}</button>
+                    <button class="icon hide" title={p.root === null ? "Remove from the list" : "Hide"}
+                            onclick={() => edit("remove", p.path)}>×</button>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/each}
     </section>
   </aside>
 
@@ -274,23 +297,36 @@
   .filter { width: 100%; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: 13px var(--mono); outline: none; }
   .filter:focus { border-color: var(--purple); }
   .helm { flex: 1; overflow: auto; }
-  .helm ul { list-style: none; margin: 0; padding: 0; }
-  .project { display: flex; align-items: center; gap: 4px; }
-  .pick { flex: 1; min-width: 0; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border-radius: 8px; }
-  .pick:hover { background: var(--bg1); }
+  .section { margin-top: 6px; }
+  .section-head { display: flex; align-items: center; }
+  .section-head:hover .hide { opacity: 1; }
+  .fold { flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; padding: 4px 6px; font: 600 11px var(--mono); color: var(--grey); letter-spacing: 0.03em; }
+  .fold:hover { color: var(--fg); }
+  .caret { width: 10px; }
+  .n { margin-left: auto; font-weight: 400; opacity: 0.7; }
+  .helm ul { list-style: none; margin: 2px 0 4px; padding: 0 0 0 10px; }
+  .project { display: flex; align-items: center; gap: 2px; }
+  .pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left; padding: 5px 8px; border-radius: 8px; }
+  .pick:hover:not(:disabled) { background: var(--bg1); }
   .pick.active { background: var(--bg2); }
-  .icon { margin-left: auto; width: 22px; height: 22px; border-radius: 6px; color: var(--grey); font: 14px var(--mono); }
+  .pick:disabled { cursor: default; }
+  .kind { width: 16px; text-align: center; font-family: var(--mono); }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .muted { opacity: 0.55; }
+  .icon { width: 22px; height: 22px; flex: none; border-radius: 6px; color: var(--grey); font: 13px var(--mono); }
   .icon:hover { background: var(--bg2); color: var(--fg); }
-  .project .hide { opacity: 0; }
-  .project:hover .hide { opacity: 1; }
-  .fold { margin-top: 8px; font: 12px var(--mono); color: var(--grey); padding: 4px 8px; }
-  .muted .project { padding: 3px 8px; color: var(--grey); }
-  .roots ul { list-style: none; margin: 0; padding: 0; }
-  .roots .project { padding: 3px 8px; }
-  .dot.blue { background: var(--blue); }
+  .hide { opacity: 0; }
+  .project:hover .hide, .star.on { opacity: 1; }
+  .star.on { color: var(--yellow); }
+  h2 .icon { margin-left: 6px; }
+  .menu-anchor { position: relative; }
+  .menu { position: absolute; right: 0; top: 26px; z-index: 20; min-width: 190px; padding: 4px; border-radius: 10px; background: var(--bg1); border: 1px solid var(--bg3); box-shadow: 0 8px 24px #0008; }
+  .menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; border-radius: 6px; font: 12.5px var(--sans); }
+  .menu button:hover { background: var(--bg2); }
+
   .name { font: 13px var(--mono); }
   .changes { width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
-  .helm .branch { flex-basis: 100%; font-size: 11px; }
+
 
   /* center */
   .center { background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }

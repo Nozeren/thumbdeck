@@ -3,15 +3,20 @@ export interface Project {
   path: string;
   branch: string | null;
   dirty: boolean;
-  /** Added by hand rather than found in a scan folder */
-  added: boolean;
+  /** Scan folder it was found in; null when added by hand */
+  root: string | null;
+  /** django, android, tauri, node, rust, go, nvim, python or folder */
+  kind: string;
   hidden: boolean;
+  pinned: boolean;
 }
 
 export interface ProjectList {
   projects: Project[];
   /** Folders scanned for git repositories */
   roots: string[];
+  /** Folded sections of the tree: "pinned", "added", "hidden" or a scan folder */
+  collapsed: string[];
 }
 
 export interface Action {
