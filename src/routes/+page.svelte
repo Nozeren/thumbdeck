@@ -1,9 +1,11 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
+  import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
   import type { Action, CustomAction, Details, Project, ProjectList, Run } from "$lib/types";
 
   let projects = $state<Project[]>([]);
@@ -251,6 +253,18 @@
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
   }
 
+  // Tell the system when a command finishes while you're looking at another window
+  async function notifyFinished(r: Run) {
+    // Ask the window itself: the web view isn't always told when the window loses focus
+    if (await getCurrentWindow().isFocused()) return;
+    let allowed = await isPermissionGranted();
+    if (!allowed) allowed = (await requestPermission()) === "granted";
+    if (!allowed) return;
+    const project = projects.find((p) => p.path === r.projectPath)?.name ?? "";
+    const title = r.code === 0 ? `✓ ${r.label} finished` : `✗ ${r.label} failed (exit ${r.code})`;
+    sendNotification({ title, body: `${r.code === 0 ? "in" : "after"} ${elapsed(r)} · ${project}` });
+  }
+
   function status(r: Run) {
     if (r.endedAt === null) return "running";
     return r.code === 0 ? "done" : "failed";
@@ -272,6 +286,7 @@
       if (r) {
         r.endedAt = Date.now();
         r.code = e.payload.code ?? -1;
+        notifyFinished(r);
       }
     });
     const timer = setInterval(() => (now = Date.now()), 1000);
