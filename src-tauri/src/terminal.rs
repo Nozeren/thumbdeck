@@ -2,6 +2,21 @@
 
 use std::process::{Command, Output, Stdio};
 
+/// The project's Python virtual environment folder, if it has one (".venv" or "venv")
+fn venv(path: &str) -> Option<&'static str> {
+    [".venv", "venv"].into_iter().find(|v| std::path::Path::new(path).join(v).join("bin/activate").exists())
+}
+
+/// What to type in a new window before anything else: activate the venv, if there is one
+fn activate_prefix(path: &str) -> String {
+    let fish = std::env::var("SHELL").is_ok_and(|s| s.ends_with("fish"));
+    match venv(path) {
+        Some(v) if fish => format!("source {v}/bin/activate.fish; and "),
+        Some(v) => format!("source {v}/bin/activate && "),
+        None => String::new(),
+    }
+}
+
 /// tmux doesn't allow "." or ":" in session names
 pub fn session_name(project: &str) -> String {
     project.chars().map(|c| if c == '.' || c == ':' { '_' } else { c }).collect()
@@ -31,9 +46,18 @@ pub fn open(path: &str, name: &str) -> Result<String, String> {
         if !ok(tmux(&["new-session", "-d", "-s", &session, "-c", path])) {
             return Err("couldn't start tmux (is it installed?)".into());
         }
-        // Neovim runs inside the shell, so quitting it leaves you in the project folder
-        let _ = tmux(&["send-keys", "-t", &format!("{target}:^"), "nvim", "Enter"]);
-        let _ = tmux(&["new-window", "-d", "-t", &format!("{target}:"), "-c", path]);
+        // Window 1: Neovim on the project folder, run from the shell so quitting it leaves a
+        // shell there. Both windows activate the project's venv first, for Python projects.
+        let prefix = activate_prefix(path);
+        let _ = tmux(&["send-keys", "-t", &format!("{target}:^"), &format!("{prefix}nvim ."), "Enter"]);
+        // Window 2: a shell
+        let window = tmux(&["new-window", "-d", "-P", "-F", "#{window_id}", "-t", &format!("{target}:"), "-c", path])
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        if !prefix.is_empty() && !window.is_empty() {
+            let activate = prefix.trim_end_matches(" && ").trim_end_matches("; and ");
+            let _ = tmux(&["send-keys", "-t", &window, &format!("{activate} && clear"), "Enter"]);
+        }
     }
 
     let clients = tmux(&["list-clients", "-F", "#{client_name}"])
@@ -83,6 +107,17 @@ fn launch_terminal(session: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn venv_is_activated_only_when_the_project_has_one() {
+        let dir = std::env::temp_dir().join(format!("thumbdeck-venv-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".venv/bin")).unwrap();
+        let path = dir.to_string_lossy().to_string();
+        assert_eq!(super::activate_prefix(&path), String::new(), "no activate script yet");
+        std::fs::write(dir.join(".venv/bin/activate"), "").unwrap();
+        assert!(super::activate_prefix(&path).starts_with("source .venv/bin/activate"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn session_names_have_no_dots_or_colons() {
         assert_eq!(super::session_name("steplink.nvim"), "steplink_nvim");
