@@ -163,6 +163,19 @@ while testing, and the first-run catalog is read from the local checkout
     working in is yours to `npm install`).
 22. **A command source without `watch` is kept for a minute.**
 23. **A backend's `ui.badge` goes on all the plugin's tabs** (a backend isn't tied to one).
+24. **Pull requests is plain JS; Agents (and Logs) are Svelte, built with Vite** into the
+    plugin's `dist/` (committed, so installing needs no build). Their UI code stayed close to
+    the old Svelte tabs, which was safer than rewriting them; the official plugins now show
+    both ways of writing one.
+25. **`[backend] autostart`** (new): the Agents backend starts with thumbdeck, so the avatar
+    knows about Claude Code sessions without the Agents tab open.
+26. **`td.tmux(…, { show: true })`** (new): starting an agent types the command into the
+    `claude` window and shows it, as the built-in tab did.
+27. **The avatar's Claude signals come from the Agents plugin**: without it, the avatar
+    doesn't react to Claude (the question under Needs you).
+28. **`.taurignore` leaves out the plugins repo**: editing a plugin no longer restarts the dev
+    app. (A frame in the unfocused dev window sometimes didn't repaint until a key was pressed;
+    the page itself was right. Worth watching; I couldn't reproduce it with the window in front.)
 
 ## Log
 

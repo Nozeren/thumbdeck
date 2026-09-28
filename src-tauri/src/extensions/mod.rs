@@ -3,7 +3,6 @@
 //! here (its setup and commands) and a folder in src/lib/extensions (its tab and setup form),
 //! listed in AVAILABLE and in src/lib/extensions/index.ts.
 
-pub mod agents;
 pub mod logs;
 
 use serde::de::DeserializeOwned;
@@ -28,12 +27,6 @@ pub const AVAILABLE: &[Extension] = &[
         name: "Logs",
         description: "The project's log files: levels, search, errors, live tail, optional sections",
         setup: complete_setup::<logs::Setup>,
-    },
-    Extension {
-        id: "agents",
-        name: "Agents",
-        description: "Claude Code sessions in this project, their subagents, and the subagents it defines",
-        setup: complete_setup::<agents::Setup>,
     },
 ];
 

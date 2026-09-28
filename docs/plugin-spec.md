@@ -435,8 +435,9 @@ td.exec(command: string | string[], { cwd?, env?, input?, timeout? }):
 td.run(command: string, { label, cwd? }): Promise<Run>
 interface Run { id: number; onOutput(fn: (line, stderr) => void); onExit(fn: (code) => void); stop(); done: Promise<number> }
 
-// Type it into a window of the project's tmux session
-td.tmux(command: string, { window: string }): Promise<string>   // thumbdeck's short message
+// Type it into a window of the project's tmux session (show: also switch the terminal
+// attached to the session to that window)
+td.tmux(command: string, { window: string; show?: boolean }): Promise<string>   // thumbdeck's short message
 ```
 
 A string command runs through the shell with your login shell's environment (PATH as in your
@@ -622,6 +623,8 @@ install = "npm ci --omit=dev" # optional: run after installing and after each up
                               # linked folder: run it yourself there)
 actions = true                # optional: answers `actions`
 watch = ["justfile"]          # optional: when to ask for actions again
+autostart = true              # optional: start with thumbdeck, not when first needed (for a
+                              # backend that watches something, e.g. for the avatar)
 ```
 
 ### The messages
@@ -665,7 +668,8 @@ An error answer is `{"id": 2, "error": {"message": "No such log"}}`; the page's
 ### Its life
 
 - thumbdeck starts the backend when it's first needed (a page calls it, or it answers
-  `actions`), and keeps one running per plugin, for every project and frame.
+  `actions`), or with thumbdeck when it has `autostart`, and keeps one running per plugin,
+  for every project and frame.
 - Its stderr goes to the plugin's log. So does anything that isn't a JSON line on stdout.
 - If it exits, it's started again at the next call; after three crashes within a minute it
   isn't, and calls say so (its log is in Settings). Turning the plugin off and on, or updating

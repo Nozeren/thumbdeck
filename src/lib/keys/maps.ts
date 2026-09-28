@@ -127,44 +127,4 @@ export const LOGS_ENTRY: Keymap = {
   ],
 };
 
-// ------------------------------------------------------------ Agents tab
-export const AGENTS_LIST: Keymap = {
-  name: "AGENTS",
-  bindings: [
-    ...MOVE,
-    bind(["l", "Enter"], "open", "open: an agent or skill to start, a session's conversation"),
-    bind("Tab", "next-list", "next list: agents → skills → sessions"),
-    bind("Shift+Tab", "previous-list", "previous list"),
-    bind("r", "refresh", "look again"),
-    SETUP,
-    LEAVE,
-    HELP,
-  ],
-};
-
-export const AGENTS_TRANSCRIPT: Keymap = {
-  name: "CONVERSATION",
-  bindings: [
-    ...MOVE,
-    bind(["d", "PageDown"], "page-down", "a page down"),
-    bind(["u", "PageUp"], "page-up", "a page up"),
-    bind(["l", "Enter", "Space"], "open", "a tool call: its details; ◇ Agent: its conversation"),
-    bind(["h", "Backspace", "-"], "back", "back"),
-    bind("r", "refresh", "read it again"),
-    LEAVE,
-    HELP,
-  ],
-};
-
-export const AGENTS_START: Keymap = {
-  name: "START",
-  bindings: [
-    bind(["i", "Enter"], "type", "type the task (Enter in the box starts Claude in tmux)"),
-    bind(["h", "Backspace", "-"], "back", "back"),
-    LEAVE,
-    HELP,
-  ],
-};
-
-// ------------------------------------------------------------ Pull requests tab
-export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY, AGENTS_LIST, AGENTS_TRANSCRIPT, AGENTS_START];
+export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY];

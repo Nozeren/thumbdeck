@@ -192,6 +192,12 @@ async fn open_in_tmux(path: String, name: String) -> Result<String, String> {
     terminal::open(&path, &name)
 }
 
+/// Show a window of the project's tmux session (in the terminal attached to it)
+#[tauri::command]
+async fn show_tmux_window(path: String, name: String, window: String) -> Result<String, String> {
+    terminal::open_window(&path, &name, &window)
+}
+
 /// Run a toolkit action in a window of the project's tmux session
 #[tauri::command]
 async fn run_in_tmux(path: String, name: String, window: String, command: String) -> Result<String, String> {
@@ -259,7 +265,9 @@ async fn plugin_add(app: AppHandle, source: String, link: bool) -> Result<Vec<pl
         }
         return Err(format!("a plugin called {} is installed already", installed.id));
     }
+    let id = installed.id.clone();
     let s = settings::update(&app, |s| settings::add_plugin(s, installed))?;
+    autostart_backends(&app, Some(&id));
     Ok(plugin_infos(&s))
 }
 
@@ -284,6 +292,9 @@ async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<p
         }
         _ => return Err(format!("can't {change} a plugin")),
     };
+    if change != "remove" && change != "disable" {
+        autostart_backends(&app, Some(&id));
+    }
     Ok(plugin_infos(&s))
 }
 
@@ -398,6 +409,27 @@ fn call_backend(app: &AppHandle, plugin: &str, method: &str, params: serde_json:
     let spec = backend_spec(app, &s, &plugins::load(&s.plugins), plugin)?;
     let host: std::sync::Arc<dyn plugins::backend::Host> = std::sync::Arc::new(AppHost(app.clone()));
     app.state::<plugins::backend::Backends>().call(host, &spec, method, params, timeout)
+}
+
+/// Start the backends that start with thumbdeck (`autostart`), of every working plugin or one
+fn autostart_backends(app: &AppHandle, only: Option<&str>) {
+    let s = settings::load(app);
+    let loaded = plugins::load(&s.plugins);
+    for p in loaded.iter().filter(|p| p.works() && only.is_none_or(|id| id == p.installed.id)) {
+        if !p.manifest.as_ref().and_then(|m| m.backend.as_ref()).is_some_and(|b| b.autostart) {
+            continue;
+        }
+        let id = p.installed.id.clone();
+        match backend_spec(app, &s, &loaded, &id) {
+            Ok(spec) => {
+                let host: std::sync::Arc<dyn plugins::backend::Host> = std::sync::Arc::new(AppHost(app.clone()));
+                if let Err(e) = app.state::<plugins::backend::Backends>().ensure(host, &spec) {
+                    app.state::<plugins::log::Logs>().add(&id, "error", &e);
+                }
+            }
+            Err(e) => app.state::<plugins::log::Logs>().add(&id, "error", &e),
+        }
+    }
 }
 
 /// A frame's call to its plugin's backend; `params` (an object) gets the frame's project
@@ -565,59 +597,6 @@ fn logs_size(file: String) -> Option<u64> {
     std::fs::metadata(file).ok().map(|m| m.len())
 }
 
-// ------------------------------------------------------------ agents extension
-
-use extensions::agents;
-
-#[derive(Serialize)]
-struct AgentList {
-    sessions: Vec<agents::sessions::Session>,
-    /// The project's subagents, then yours (when the setup says so)
-    defined: Vec<agents::defined::Defined>,
-    /// The project's skills, then yours (when the setup says so)
-    skills: Vec<agents::skills::Skill>,
-    /// Where the sessions are read from
-    dir: String,
-}
-
-#[tauri::command]
-async fn agents_list(path: String, setup: agents::Setup) -> Result<AgentList, String> {
-    let home = agents::claude_home().ok_or("no home folder")?;
-    let dir = agents::sessions_dir(&home, Path::new(&path));
-    let mut defined = agents::defined::list(&Path::new(&path).join(".claude/agents"), "project");
-    if setup.user_agents {
-        defined.extend(agents::defined::list(&home.join("agents"), "user"));
-    }
-    let mut skills = agents::skills::list(&Path::new(&path).join(".claude/skills"), "project");
-    if setup.user_agents {
-        skills.extend(agents::skills::list(&home.join("skills"), "user"));
-    }
-    Ok(AgentList { sessions: agents::sessions::list(&dir), defined, skills, dir: dir.to_string_lossy().to_string() })
-}
-
-/// Start Claude Code as one of the agents or with a skill, in the project's "claude" tmux
-/// window, then show that window. A window already running Claude is left alone (one session
-/// at a time) and shown instead.
-#[tauri::command]
-async fn agents_start(path: String, name: String, kind: String, agent: String, task: String) -> Result<String, String> {
-    let command = agents::start_command(&kind, &agent, &task)?;
-    let message = terminal::run_in_window(&path, &name, "claude", &command)?;
-    terminal::open_window(&path, &name, "claude")?;
-    Ok(message)
-}
-
-/// The Claude Code sessions running now, in any project (for the avatar)
-#[tauri::command]
-async fn claude_live() -> Vec<agents::live::Live> {
-    agents::claude_home().map(|h| agents::live::list(&h)).unwrap_or_default()
-}
-
-/// A session's or subagent's conversation
-#[tauri::command]
-async fn agents_transcript(file: String) -> Result<Vec<agents::transcript::Entry>, String> {
-    agents::transcript::read(Path::new(&file))
-}
-
 // ------------------------------------------------------------ the status line
 
 /// The project's branch and how many files changed, for the status line
@@ -683,14 +662,16 @@ pub fn run() {
             let loaded = plugins::load(&settings::load(ctx.app_handle()).plugins);
             plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
         })
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux,
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, claude_live,
+            logs_summary, logs_size, check_update, install_update, restart, readme_image,
             branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             watch_plugin_updates(app.handle().clone());
+            let handle = app.handle().clone();
+            std::thread::spawn(move || autostart_backends(&handle, None));
             Ok(())
         })
         .build(tauri::generate_context!())

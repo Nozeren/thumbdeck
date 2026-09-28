@@ -6,8 +6,6 @@ import type { ReviewRequest } from "../review/types.ts";
 import type { Keymap } from "../keys/keys.ts";
 import LogViewer from "./logs/LogViewer.svelte";
 import LogsSetup from "./logs/SetupForm.svelte";
-import AgentsTab from "./agents/AgentsTab.svelte";
-import AgentsSetup from "./agents/SetupForm.svelte";
 
 /** What every tab component is given */
 export interface TabProps {
@@ -58,5 +56,4 @@ export interface ExtensionUi {
 
 export const extensions: Record<string, ExtensionUi> = {
   logs: { tab: LogViewer, setup: LogsSetup },
-  agents: { tab: AgentsTab, setup: AgentsSetup },
 };

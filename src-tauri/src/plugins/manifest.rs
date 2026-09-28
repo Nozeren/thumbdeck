@@ -152,6 +152,9 @@ pub struct BackendDef {
     pub actions: bool,
     #[serde(default)]
     pub watch: Vec<String>,
+    /// Start with thumbdeck, not when first needed (for a backend that watches something)
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 /// A settings or setup field, drawn by thumbdeck

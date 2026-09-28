@@ -432,19 +432,12 @@
   let avatar = $state(""); // the character (settings); "none": no character
   let avatarRef = $state<{ pickCharacter(): void } | null>(null);
   let lastInput = $state(Date.now());
-  let claudeLive = $state<{ project: string; status: string }[]>([]);
+  // Your last key or click: the avatar falls asleep when there's none for a while
   $effect(() => {
-    const look = () =>
-      invoke<{ cwd: string; status: string }[]>("claude_live")
-        .then((l) => (claudeLive = l.map((c) => ({ project: c.cwd.split("/").filter(Boolean).at(-1) ?? c.cwd, status: c.status }))))
-        .catch(() => (claudeLive = []));
-    look();
-    const timer = setInterval(look, 4000);
     const input = () => (lastInput = Date.now());
     window.addEventListener("keydown", input, true);
     window.addEventListener("pointerdown", input, true);
     return () => {
-      clearInterval(timer);
       window.removeEventListener("keydown", input, true);
       window.removeEventListener("pointerdown", input, true);
     };
@@ -458,8 +451,6 @@
           // The built-in tabs', until they're plugins too
           {
             reading: avatarSignals.logsReading > 0,
-            waiting: claudeLive.find((c) => c.status === "waiting") && `Claude in ${claudeLive.find((c) => c.status === "waiting")!.project}`,
-            working: claudeLive.find((c) => c.status === "busy") && `Claude in ${claudeLive.find((c) => c.status === "busy")!.project}`,
           },
         ]),
         update: update?.version ?? null,

@@ -142,7 +142,9 @@
       case "tmux": {
         if (!project) throw new Error("this frame has no project");
         if (!p.window) throw new Error("tmux needs a window name");
-        return invoke<string>("run_in_tmux", { path: project.path, name: project.name, window: p.window, command: p.command });
+        const message = await invoke<string>("run_in_tmux", { path: project.path, name: project.name, window: p.window, command: p.command });
+        if (p.show) await invoke("show_tmux_window", { path: project.path, name: project.name, window: p.window });
+        return message;
       }
       case "ui.say": return say(p.text, p.error);
       case "ui.confirm":

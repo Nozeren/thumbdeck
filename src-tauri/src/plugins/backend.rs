@@ -89,6 +89,11 @@ impl Backends {
         backend.request(method, params, timeout)
     }
 
+    /// Make sure it's running (a backend that starts with thumbdeck)
+    pub fn ensure(&self, host: Arc<dyn Host>, spec: &Spec) -> Result<(), String> {
+        self.get_or_start(host, spec).map(|_| ())
+    }
+
     /// Tell a running backend something (no answer); nothing when it isn't running
     pub fn event(&self, plugin: &str, method: &str, params: Value) {
         if let Some(b) = self.0.running.lock().unwrap().get(plugin) {

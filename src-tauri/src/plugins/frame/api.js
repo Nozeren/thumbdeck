@@ -213,7 +213,7 @@
       });
     },
 
-    tmux: (command, o = {}) => call("tmux", { command, window: o.window }),
+    tmux: (command, o = {}) => call("tmux", { command, window: o.window, show: !!o.show }),
 
     ui: Object.freeze({
       say: (text, o = {}) => tell("ui.say", { text: String(text), error: !!o.error }),
