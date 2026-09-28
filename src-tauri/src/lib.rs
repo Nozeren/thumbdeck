@@ -1,23 +1,27 @@
-mod actions;
 mod extensions;
 mod packs;
+mod plugins;
 mod projects;
 mod runner;
 mod settings;
 mod terminal;
+#[cfg(test)]
+mod testutil;
 mod updater;
 
+use plugins::toolkit::{self, Action, Provider};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
 #[derive(Serialize)]
 struct Details {
     /// Your actions first, then the detected ones you haven't hidden
-    actions: Vec<actions::Action>,
+    actions: Vec<Action>,
     /// Detected actions you hid, so they can be brought back
-    hidden: Vec<actions::Action>,
-    /// Toolkit packs that couldn't be used, and why
+    hidden: Vec<Action>,
+    /// Toolkit packs and plugins that couldn't be used, and why
     problems: Vec<String>,
     readme: Option<String>,
     /// Extension tabs turned on for the project
@@ -34,7 +38,7 @@ struct TabInfo {
 fn details(app: &AppHandle, path: &str) -> Details {
     let s = settings::load(app);
     let hidden_ids: Vec<&str> = s.hidden_actions.get(path).into_iter().flatten().map(|id| legacy_id(id)).collect();
-    let custom = s.custom.get(path).cloned().unwrap_or_default().into_iter().map(|c| actions::Action {
+    let custom = s.custom.get(path).cloned().unwrap_or_default().into_iter().map(|c| Action {
         id: format!("custom:{}", c.id),
         label: c.name,
         command: c.command,
@@ -44,16 +48,29 @@ fn details(app: &AppHandle, path: &str) -> Details {
         confirm: c.confirm,
         tmux: c.tmux,
     });
-    let toolkit = actions::detect(&packs::load(), Path::new(path));
+    let (providers, mut problems) = providers(&s);
+    let toolkit = toolkit::detect(&providers, Path::new(path));
+    problems.extend(toolkit.problems);
     let (hidden, shown): (Vec<_>, Vec<_>) =
         toolkit.actions.into_iter().partition(|a| hidden_ids.contains(&a.id.as_str()));
     Details {
         actions: custom.chain(shown).collect(),
         hidden,
-        problems: toolkit.problems,
+        problems,
         readme: projects::readme(Path::new(path)),
         tabs: s.extensions.get(path).into_iter().flatten().map(|t| TabInfo { title: t.title(), tab: t.complete() }).collect(),
     }
+}
+
+/// What brings buttons to the Toolkit: the packs, then the working plugins (a plugin replaces
+/// the pack with its id); with what went wrong
+fn providers(s: &settings::Settings) -> (Vec<Provider>, Vec<String>) {
+    let packs = packs::load();
+    let mine = plugins::providers(&plugins::load(&s.plugins));
+    let mut all: Vec<Provider> = packs.packs.into_iter().filter(|p| !mine.iter().any(|m| m.id == p.id)).collect();
+    all.extend(mine);
+    let (all, more) = toolkit::resolve(all);
+    (all, packs.problems.into_iter().chain(more).collect())
 }
 
 /// Ids of hidden actions from before toolkit packs, where they changed
@@ -71,7 +88,7 @@ struct ProjectList {
 
 fn project_list(s: &settings::Settings) -> ProjectList {
     ProjectList {
-        projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned, &packs::load().packs),
+        projects: projects::list(&s.roots, &s.added, &s.hidden, &s.pinned, &providers(s).0),
         roots: s.roots.clone(),
         last: s.last.clone(),
         avatar: s.avatar.clone(),
@@ -178,6 +195,115 @@ fn new_tab(extension: String) -> Result<extensions::Tab, String> {
 async fn edit_tab(app: AppHandle, path: String, change: String, index: usize, tab: Option<extensions::Tab>) -> Result<Details, String> {
     settings::update(&app, |s| settings::edit_tab(s, &path, &change, index, tab))?;
     Ok(details(&app, &path))
+}
+
+// ------------------------------------------------------------ plugins
+
+fn plugin_infos(s: &settings::Settings) -> Vec<plugins::Info> {
+    plugins::load(&s.plugins).iter().map(|p| plugins::info(p, &s.plugin_settings)).collect()
+}
+
+fn plugins_dir() -> Result<std::path::PathBuf, String> {
+    plugins::install::plugins_dir().ok_or_else(|| "no home folder".to_string())
+}
+
+#[tauri::command]
+async fn plugins_list(app: AppHandle) -> Vec<plugins::Info> {
+    plugin_infos(&settings::load(&app))
+}
+
+/// Install a plugin from a git URL (`url#folder` for one in a folder), or link a folder
+#[tauri::command]
+async fn plugin_add(app: AppHandle, source: String, link: bool) -> Result<Vec<plugins::Info>, String> {
+    let s = settings::load(&app);
+    let installed = if link {
+        plugins::install::link(Path::new(source.trim()))?
+    } else {
+        plugins::install::install(&source, &plugins_dir()?)?
+    };
+    if s.plugins.iter().any(|p| p.id == installed.id) {
+        if !link {
+            let _ = plugins::install::remove(&installed, &plugins_dir()?);
+        }
+        return Err(format!("a plugin called {} is installed already", installed.id));
+    }
+    let s = settings::update(&app, |s| settings::add_plugin(s, installed))?;
+    Ok(plugin_infos(&s))
+}
+
+/// Turn a plugin on ("enable") or off ("disable"), move it to its newest release ("update"),
+/// or delete it with its settings ("remove")
+#[tauri::command]
+async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<plugins::Info>, String> {
+    let s = settings::load(&app);
+    let p = s.plugins.iter().find(|p| p.id == id).cloned().ok_or_else(|| format!("no plugin {id}"))?;
+    let s = match change.as_str() {
+        "enable" | "disable" => settings::update(&app, |s| settings::add_plugin(s, plugins::install::Installed { enabled: change == "enable", ..p }))?,
+        "update" => {
+            let updated = plugins::install::update(&p, &plugins_dir()?)?;
+            settings::update(&app, |s| settings::add_plugin(s, updated))?
+        }
+        "remove" => {
+            plugins::install::remove(&p, &plugins_dir()?)?;
+            settings::update(&app, |s| settings::remove_plugin(s, &id))?
+        }
+        _ => return Err(format!("can't {change} a plugin")),
+    };
+    Ok(plugin_infos(&s))
+}
+
+#[tauri::command]
+async fn plugin_save_settings(app: AppHandle, id: String, settings: serde_json::Value) -> Result<Vec<plugins::Info>, String> {
+    let s = settings::update(&app, |s| {
+        s.plugin_settings.insert(id, settings);
+    })?;
+    Ok(plugin_infos(&s))
+}
+
+/// Plugins with a newer release: id -> its tag ("the latest commit" for one without tags)
+fn plugin_updates(s: &settings::Settings) -> HashMap<String, String> {
+    let Ok(dir) = plugins_dir() else { return HashMap::new() };
+    s.plugins
+        .iter()
+        .filter_map(|p| match plugins::install::newer(p, &dir) {
+            Ok(next) => Some((p.id.clone(), next?)),
+            Err(e) => {
+                eprintln!("thumbdeck: checking {} for updates: {e}", p.id);
+                None
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn plugins_check_updates(app: AppHandle) -> HashMap<String, String> {
+    plugin_updates(&settings::load(&app))
+}
+
+/// Look for newer plugin releases a little after start
+fn watch_plugin_updates(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(15));
+        let updates = plugin_updates(&settings::load(&app));
+        if !updates.is_empty() {
+            let _ = app.emit("plugin-updates", updates);
+        }
+    });
+}
+
+/// `thumbdeck plugin check <folder>`: runs instead of the app; returns the exit code
+pub fn cli() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1..).unwrap_or_default() {
+        [plugin, check, rest @ ..] if plugin == "plugin" && check == "check" => {
+            Some(plugins::check_command(Path::new(rest.first().map(String::as_str).unwrap_or("."))))
+        }
+        [plugin, ..] if plugin == "plugin" => {
+            eprintln!("usage: thumbdeck plugin check <folder>");
+            Some(2)
+        }
+        _ => None,
+    }
 }
 
 // ------------------------------------------------------------ logs extension
@@ -394,9 +520,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
             extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
             logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
-            git_status, git_diff, git_log, git_show, git_branches, git_stash, git_review, prs_diff])
+            git_status, git_diff, git_log, git_show, git_branches, git_stash, git_review, prs_diff,
+            plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
+            watch_plugin_updates(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

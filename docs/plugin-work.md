@@ -5,7 +5,8 @@ first when you're back.
 
 ## Where it stands
 
-Not started. (Updated at the end of each step.)
+Step 1 is done (manifests, installing, Settings › Plugins, `thumbdeck plugin check`). Step 2
+(plugin frames and the page API, Git as a plugin) is next.
 
 ## How I work
 
@@ -109,8 +110,37 @@ while testing, and the first-run catalog is read from the local checkout
 
 ## Decisions made
 
-(Each: what, why, where.)
+1. **Settings opens with `,`** (and **+ › Settings…**): there was no settings dialog yet, and
+   `,` is free and means settings in many apps. `maps.ts`.
+2. **Plugins live in `$XDG_DATA_HOME/thumbdeck/plugins`** (default `~/.local/share/thumbdeck`),
+   so a dev run can keep them apart from yours, like `XDG_CONFIG_HOME` does for settings.
+   `plugins/install.rs`.
+3. **Each installed plugin is a clone of its own**, even when several come from one
+   repository, so each can sit at its own release tag. `plugins/install.rs`.
+4. **A plugin with any problem isn't loaded**; there are no warnings. Simple to understand, and
+   `plugin check` says exactly the same. `plugins/manifest.rs`.
+5. **Until step 3, packs and plugins both fill the Toolkit**; a plugin replaces the pack with
+   its id, so a pack can be tried as a plugin next to the others. `lib.rs` `providers`.
+6. **`[detect]`'s `icon`** is one of thumbdeck's icon names or an `.svg` in the plugin (the
+   .svg isn't drawn yet: step 3).
+7. **TOML key typos are said plainly**: "there's no key nmae (did you mean name?)" instead of
+   serde's list of every key.
+8. **The key rules are in Rust too** (`plugins/keys.rs`), for checking manifests; a test fails
+   if they differ from `RULES` in `keys.ts`.
+9. **A plugin that adds nothing is still valid** (e.g. while you start writing one).
 
 ## Log
 
-(Each step: what was done, what was tested, commits.)
+### Step 1: manifests, installing, Settings › Plugins
+
+- `src-tauri/src/plugins/`: `manifest.rs` (plugin.toml and every check), `install.rs` (git
+  URL with `#folder`, latest `v1.2.0` / `<id>-v1.2.0` tag, updates, links, removing),
+  `detect.rs` and `toolkit.rs` (moved from `packs.rs` / `actions.rs`, now shared by packs and
+  plugins), `keys.rs` (the rules), `mod.rs` (loading, what Settings shows, `plugin check`).
+- `settings.json` gains `plugins` and `plugin_settings`.
+- `src/lib/settings/SettingsDialog.svelte`, `src/lib/plugins/FieldsForm.svelte` (forms drawn
+  from `[[settings]]`; tab setups use it in step 2).
+- Tested: `cargo test` (105), `npm test`, `svelte-check`. In the dev app: installed a plugin
+  from a local git repository (latest tag taken), its button showed in the Toolkit, a new tag
+  was found on start and the update installed, settings saved, a broken manifest showed its
+  problem. `thumbdeck plugin check` on a good and a broken plugin (exit 0 / 1).

@@ -304,7 +304,7 @@ pub fn shorten(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::extensions::agents::tests::{testdata, SESSION};
-    use crate::packs::tests::TempDir;
+    use crate::testutil::TempDir;
 
     #[test]
     fn a_real_session_with_a_subagent() {

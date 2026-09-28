@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn long_results_are_cut_and_errors_kept() {
-        let d = crate::packs::tests::TempDir::new("agents-transcript");
+        let d = crate::testutil::TempDir::new("agents-transcript");
         let long = "x".repeat(LONG + 10);
         let lines = [
             serde_json::json!({"type": "assistant", "message": {"content": [

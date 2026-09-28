@@ -154,7 +154,7 @@ fn format_duration(seconds: f64) -> String {
 mod tests {
     use super::*;
     use crate::extensions::logs::parser::tests::{sections_setup, SAMPLE};
-    use crate::packs::tests::TempDir;
+    use crate::testutil::TempDir;
 
     fn touch_later(path: &Path, secs: u64) {
         let f = std::fs::File::options().write(true).open(path).unwrap();

@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn replacing_a_file_or_a_folder_in_place() {
-        let d = crate::packs::tests::TempDir::new("updater-replace");
+        let d = crate::testutil::TempDir::new("updater-replace");
         d.file("thumbdeck", "old").file(".update/thumbdeck", "new");
         replace(&d.0.join(".update/thumbdeck"), &d.0.join("thumbdeck")).unwrap();
         assert_eq!(std::fs::read_to_string(d.0.join("thumbdeck")).unwrap(), "new");

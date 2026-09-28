@@ -17,6 +17,7 @@ export const MAIN: Keymap = {
     bind("p", "pin", "pin the project"),
     bind("x", "remove", "hide the project (or remove one you added)"),
     bind("z", "wide", "wide: only the center (anywhere)"),
+    bind(",", "settings", "settings: plugins"),
     bind("Escape", "leave", "close menus and dialogs"),
     HELP,
   ],

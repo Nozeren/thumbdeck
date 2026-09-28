@@ -9,6 +9,7 @@
   import Avatar from "$lib/avatar/Avatar.svelte";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import StatusBar from "$lib/StatusBar.svelte";
+  import SettingsDialog from "$lib/settings/SettingsDialog.svelte";
   import { actionFor, keysLabel } from "$lib/keys/keys";
   import { DIALOG, FILTER, MAIN, REVIEW, TOOLKIT } from "$lib/keys/maps";
   import type { ReviewRequest } from "$lib/review/types";
@@ -93,6 +94,22 @@
     else if (change === "remove") showTab(null);
   }
 
+  // ------------------------------------------------------------ settings (plugins)
+  let settingsOpen = $state(false);
+  // Plugins with a newer release: id -> its tag (looked for a little after start)
+  let pluginUpdates = $state<Record<string, string>>({});
+
+  function openSettings() {
+    addMenu = false;
+    settingsOpen = true;
+  }
+
+  // Plugins changed: the Toolkit and the project icons may have too
+  async function pluginsChanged() {
+    applyList(await invoke<ProjectList>("list_projects"));
+    if (selected) details = await invoke<Details>("project_details", { path: selected.path });
+  }
+
   // ------------------------------------------------------------ keyboard
   let hints = $state(false); // Space pressed: Toolkit buttons show their letters
   let helpOpen = $state(false);
@@ -136,7 +153,7 @@
       return;
     }
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
-    const dialog = form || setupForm || helpOpen || updateDialog;
+    const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen;
     // 1 README, 2… extension tabs
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
@@ -168,6 +185,7 @@
       tabMenu = false;
       form = null;
       setupForm = null;
+      settingsOpen = false;
       if (updateState !== "installing") updateDialog = false;
       hints = false;
       helpOpen = false;
@@ -199,6 +217,7 @@
       case "run": cycleRuns(e.key === "[" ? -1 : 1); break;
       case "help": helpOpen = !helpOpen; break;
       case "outside": openInTmux(); break;
+      case "settings": openSettings(); break;
       default: return;
     }
     e.preventDefault();
@@ -427,7 +446,7 @@
   /** Who has the keyboard, for the status bar at the bottom */
   const barKeys = $derived(
     review ? REVIEW
-    : form || setupForm || helpOpen || updateDialog ? DIALOG
+    : form || setupForm || helpOpen || updateDialog || settingsOpen ? DIALOG
     : filtering ? FILTER
     : hints ? TOOLKIT
     : keysToTab && tabShown && tabRef ? tabRef.keymap()
@@ -516,6 +535,11 @@
       }
     });
     const unlistenUpdate = listen<Update>("update-available", (e) => (update = e.payload));
+    const unlistenPlugins = listen<Record<string, string>>("plugin-updates", (e) => {
+      pluginUpdates = e.payload;
+      const n = Object.keys(e.payload).length;
+      say(`${n} plugin${n === 1 ? " has" : "s have"} a newer release: Settings (,) › Plugins`);
+    });
     const unlistenExit = listen<{ id: number; code: number | null }>("run-exit", (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (r) {
@@ -528,6 +552,7 @@
       unlistenOut.then((f) => f());
       unlistenExit.then((f) => f());
       unlistenUpdate.then((f) => f());
+      unlistenPlugins.then((f) => f());
       clearInterval(timer);
     };
   });
@@ -557,6 +582,7 @@
             <div class="menu">
               <button onclick={() => pickFolder("add")}>Add project…</button>
               <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
+              <button onclick={openSettings}>Settings…{#if Object.keys(pluginUpdates).length}<span class="menu-new"> ↑ {Object.keys(pluginUpdates).length}</span>{/if}</button>
               <button onclick={updatePacks}>Update toolkit packs</button>
               <button onclick={checkForUpdates}>Check for updates</button>
             </div>
@@ -811,6 +837,11 @@
   {/if}
 {/if}
 
+{#if settingsOpen}
+  <SettingsDialog updates={pluginUpdates} onUpdates={(u) => (pluginUpdates = u)} onChanged={pluginsChanged}
+                  onClose={() => (settingsOpen = false)} />
+{/if}
+
 {#if form && selected}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (form = null)}>
     <form class="dialog" onsubmit={(e) => { e.preventDefault(); saveForm(); }}>
@@ -941,6 +972,7 @@
   .btab.add { flex: none; padding: 3px 9px; }
   .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
+  .menu-new { color: var(--green); font-weight: 600; }
   .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(img) { max-width: 100%; height: auto; border-radius: 6px; }

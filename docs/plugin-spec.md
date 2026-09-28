@@ -681,19 +681,24 @@ serve({
 
 ## Installing, versions and updates
 
-**Settings › Plugins › Add** takes:
+**Settings** (`,`, or **+ › Settings…**) **› Plugins › Add a plugin** takes:
 
 - a git URL: `https://github.com/x/thumbdeck-pomodoro`
 - a folder inside a repository holding several plugins: `https://github.com/Nozeren/thumbdeck-plugins#plugins/django`
 - a folder on disk, linked rather than copied, for developing (reloads when files change)
 
 thumbdeck installs the **latest release tag** of the plugin (the default branch when there are
-none), keeps it in `~/.local/share/thumbdeck/plugins/<id>/`, and shows its README, what it adds
+none), keeps it in `~/.local/share/thumbdeck/plugins/<id>/` (`$XDG_DATA_HOME/thumbdeck` when
+that's set), each plugin in a clone of its own, and shows its README, what it adds
 and its version. Tags are `v1.2.0`, or `<id>-v1.2.0` in a repository with several plugins; the
 tag's `version` in `plugin.toml` must match it.
 
-On start, thumbdeck checks installed plugins for newer tags and marks them in Settings; you
-update one or all from there. Nothing updates by itself.
+On start, thumbdeck checks installed plugins for newer tags and marks them in Settings (↑);
+you update them from there. Nothing updates by itself. A plugin without tags follows its default
+branch: a newer commit there is its update.
+
+A plugin with any problem in its manifest isn't loaded; Settings shows each problem in a plain
+sentence (`plugin.toml line 5: there's no key nmae (did you mean name?)`).
 
 **Trust**: a plugin runs with your user's rights, like an editor plugin: its pages can read and
 write your files and run commands, and its backend is a program on your machine. thumbdeck says

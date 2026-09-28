@@ -2,5 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if let Some(code) = thumbdeck_lib::cli() {
+        std::process::exit(code);
+    }
     thumbdeck_lib::run()
 }

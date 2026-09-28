@@ -26,6 +26,10 @@ pub struct Settings {
     pub extensions: HashMap<String, Vec<crate::extensions::Tab>>,
     /// The character in the top bar ("octopus", "crab", ...; empty: the octopus; "none": none)
     pub avatar: String,
+    /// Installed plugins, in the order they were installed
+    pub plugins: Vec<crate::plugins::install::Installed>,
+    /// Each plugin's settings, by plugin id
+    pub plugin_settings: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -73,6 +77,20 @@ pub fn edit_tab(s: &mut Settings, project: &str, change: &str, index: usize, tab
     }
 }
 
+/// Add an installed plugin, or replace the one with the same id (keeping its place)
+pub fn add_plugin(s: &mut Settings, plugin: crate::plugins::install::Installed) {
+    match s.plugins.iter_mut().find(|p| p.id == plugin.id) {
+        Some(existing) => *existing = plugin,
+        None => s.plugins.push(plugin),
+    }
+}
+
+/// Forget a plugin and its settings
+pub fn remove_plugin(s: &mut Settings, id: &str) {
+    s.plugins.retain(|p| p.id != id);
+    s.plugin_settings.remove(id);
+}
+
 pub fn delete_action(s: &mut Settings, project: &str, id: &str) {
     if let Some(list) = s.custom.get_mut(project) {
         list.retain(|a| a.id != id);
@@ -88,7 +106,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new() }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
     }
 }
 
@@ -168,7 +186,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new() }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
     }
 
     #[test]
@@ -244,6 +262,22 @@ mod tests {
         assert_eq!(s.extensions["/p"].len(), 1, "out of range changes do nothing");
         edit_tab(&mut s, "/p", "remove", 0, None);
         assert!(!s.extensions.contains_key("/p"), "empty projects are dropped");
+    }
+
+    #[test]
+    fn plugins_are_added_replaced_and_removed_with_their_settings() {
+        let mut s = empty();
+        let p = |id: &str, tag: &str| crate::plugins::install::Installed {
+            id: id.into(), source: format!("https://x/{id}"), tag: Some(tag.into()), enabled: true, linked: false,
+        };
+        add_plugin(&mut s, p("a", "v1.0.0"));
+        add_plugin(&mut s, p("b", "v1.0.0"));
+        add_plugin(&mut s, p("a", "v2.0.0"));
+        assert_eq!(s.plugins.iter().map(|p| (p.id.as_str(), p.tag.as_deref().unwrap())).collect::<Vec<_>>(), [("a", "v2.0.0"), ("b", "v1.0.0")]);
+        s.plugin_settings.insert("a".into(), serde_json::json!({ "n": 1 }));
+        remove_plugin(&mut s, "a");
+        assert_eq!(s.plugins.len(), 1);
+        assert!(s.plugin_settings.is_empty());
     }
 
     #[test]
