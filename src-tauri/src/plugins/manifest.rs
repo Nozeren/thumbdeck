@@ -49,7 +49,6 @@ struct Raw {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // api and icon aren't used yet
 pub struct Manifest {
     pub id: String,
     pub name: String,

@@ -1,15 +1,29 @@
 # Plugins: the work while you're away
 
-The plan for building [plugin-spec.md](plugin-spec.md), and its log. Read **Where it stands**
-first when you're back.
+The plan for building the plugins (the spec is now SPEC.md in the plugins repo,
+`src-tauri/toolkits`), and its log. Read **Where it stands** first when you're back.
 
 ## Where it stands
 
-Steps 1 to 5 are done: plugins are installed and managed in Settings (`,`), the first start
-offers the official ones, plugin tabs, views (the Plugins pane, `Ctrl+p`), panels and pages
-run in frames with the whole page API, plugins can have a backend, and every tab thumbdeck
-had and every pack is a plugin now; the built-in extensions and the pack code are gone.
-Step 6 (docs and the plugins repo) is next.
+**All six steps are done**, committed on the `plugins` branches of thumbdeck and of the
+plugins repo (`src-tauri/toolkits`); nothing is pushed.
+
+- Every tab thumbdeck had (Git, Logs, Agents, Pull requests) and every pack (Django, Python,
+  npm, make, Cargo, Go, Gradle, Compose) is a plugin in the plugins repo; the built-in code for
+  them is gone. The first start offers them all (ticked), so updating keeps what you had.
+- Settings (`,`) › Plugins installs (git URL, a folder, the catalog), updates, turns off,
+  reorders and removes plugins, with their settings form, README, log and Inspect.
+- Plugins can add Toolkit buttons, tabs, panels, full-window pages and a view in the new
+  Plugins pane (`Ctrl+p`), talk to thumbdeck through `window.thumbdeck`, and have a backend.
+- The plugins repo has SPEC.md, GUIDE.md, four examples, a template, and the three npm
+  packages (types, the Node backend helper, the checker for CI).
+- Checks, all passing: `cargo test` (71), `npm test` (19), `svelte-check`, the plugins repo's
+  `npm test` (55) and `npm run check` (17 plugins, examples and the template).
+
+To try it: `npm run tauri dev` as usual. Your settings have no plugins yet, so it offers the
+catalog, which it fetches from GitHub: until the plugins repo is pushed there, start it with
+`THUMBDECK_CATALOG=<a copy of src-tauri/toolkits/catalog.toml whose sources point at the local
+repo>`, as I did (the sources then look like `/home/…/src-tauri/toolkits#plugins/git`).
 
 ## How I work
 
@@ -106,11 +120,19 @@ while testing, and the first-run catalog is read from the local checkout
 
 ## Needs you
 
-- When you're back: rename `thumbdeck-toolkits` to `thumbdeck-plugins` on GitHub, publish the
-  three npm packages, push both branches: the submodule's `plugins` branch first, since
-  thumbdeck's commits point at its commits. (I won't do any of these.)
-- Confirm: the avatar only reacts to Claude when the Agents plugin is installed (it sends
+- **Publish**: rename `thumbdeck-toolkits` to `thumbdeck-plugins` on GitHub (and make it public:
+  thumbdeck fetches the catalog and installs plugins from it without a login), push the
+  submodule's `plugins` branch first, then thumbdeck's (its commits point at the submodule's).
+  Tag the official plugins (`git-v1.0.0`, `logs-v1.0.0`, … the versions in their plugin.toml)
+  so installs take a release rather than the branch. Publish the three npm packages
+  (`packages/plugin`, `packages/backend`, `packages/check`).
+- **Confirm**: the avatar only reacts to Claude when the Agents plugin is installed (it sends
   `waiting` / `working`).
+- **Check by hand**: typing into a plugin's setup page (Logs' `S`) and saving it; my test keys
+  can't reach a field inside a frame (decision 28 and step 4's log).
+- **The release workflow** no longer checks out the plugins repo (the build doesn't need it);
+  worth watching on the next release. `install.sh` doesn't update the submodule either.
+- **The README's screenshot** shows the old window (no Plugins pane).
 
 ## Decisions made
 
@@ -197,6 +219,14 @@ while testing, and the first-run catalog is read from the local checkout
 36. **Panels follow the plugins' order**, changed with ↑ ↓ in Settings › Plugins.
 37. **A linked plugin reloads when any of its files changes** (looked at every 1.2 s; its
     `node_modules` and `.git` aren't): its frames load again, its backend restarts.
+38. **`@thumbdeck/check` is a JavaScript copy of thumbdeck's checks** (with `smol-toml` for
+    TOML): the same problems in nearly the same words (a TOML typo gives a path like
+    `action[0]` where thumbdeck gives a line number). A Rust test keeps its key rules equal to
+    thumbdeck's.
+39. **The spec's "Decisions" and implementation notes stayed out of SPEC.md**: it's for plugin
+    authors. This file keeps the decisions; CLAUDE.md's map says where things are.
+40. **The build no longer needs the plugins repo**, so the release workflow and `install.sh`
+    don't check it out (only the tests read it).
 
 ## Log
 
@@ -292,3 +322,16 @@ while testing, and the first-run catalog is read from the local checkout
   (from the local repo); the Toolkit and icon came back. Pomodoro: the pane and its status,
   `Ctrl+p` and Enter to its view, its keys, the panel ticking along, the history page and Esc
   back, an edit to its file reloading it, and a 1-minute session ending (history saved).
+
+### Step 6: docs and the plugins repo
+
+- The plugins repo: SPEC.md (moved from `docs/plugin-spec.md`, checked against the code: menu
+  names, panels not taking the keyboard, `tmux` `show`, `autostart`, `setup_page`, `json`),
+  GUIDE.md (a first plugin, step by step: buttons, a tab, setup, keys, a backend, sharing it),
+  README.md, `examples/hello`, `template/`, `packages/check` (`@thumbdeck/check`, with tests),
+  `npm run check`.
+- thumbdeck: a plugin's icon in Settings; README (plugins instead of packs and built-in tabs,
+  `,` and `Ctrl+p`); CLAUDE.md's map and checks; the release workflow and `install.sh` without
+  the submodule.
+- Tested: every check above; `npm run check` on every plugin, example and the template; the
+  checker's CLI on a good and a missing plugin (exit 0 / 1).

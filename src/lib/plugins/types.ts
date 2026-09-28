@@ -23,6 +23,8 @@ export interface PluginInfo {
   version: string | null;
   description: string;
   homepage: string | null;
+  /** Its icon file, in its folder */
+  icon: string | null;
   /** A git URL (maybe with #folder), or the folder it's linked from */
   source: string;
   /** The release tag it's at; null: the default branch, or linked */

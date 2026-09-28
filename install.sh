@@ -58,8 +58,6 @@ install_macos() {
 
 from_source() {
     cd "$1"
-    # The built-in toolkit packs come from the thumbdeck-toolkits submodule
-    git submodule update --init
     [ -d node_modules ] || { info "Installing JavaScript dependencies"; npm install --no-audit --no-fund; }
     info "Building (release)"
     case "$(uname -s)" in

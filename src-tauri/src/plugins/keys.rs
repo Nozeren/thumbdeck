@@ -96,19 +96,29 @@ mod tests {
         assert!(map(&[(&[], "x")]).problems("m")[0].contains("no keys"));
     }
 
-    /// The rules here are the ones the page follows
-    #[test]
-    fn rules_match_keys_ts() {
-        let ts = include_str!("../../../src/lib/keys/keys.ts");
+    /// The RULES object in a TypeScript or JavaScript file, as (key, action) pairs
+    fn rules_in(ts: &str) -> Vec<(String, String)> {
         let start = ts.find("export const RULES").unwrap();
         let body = &ts[start..start + ts[start..].find("};").unwrap()];
         let body = &body[body.find('{').unwrap() + 1..];
         let re = regex::Regex::new(r#"("[^"]+"|[A-Za-z]+):\s*"([^"]+)""#).unwrap();
-        let mut from_ts: Vec<(String, String)> =
+        let mut found: Vec<(String, String)> =
             re.captures_iter(body).map(|c| (c[1].trim_matches('"').to_string(), c[2].to_string())).collect();
+        found.sort();
+        found
+    }
+
+    /// The rules here are the ones the page follows, and the ones @thumbdeck/check checks
+    #[test]
+    fn rules_match_the_page_and_the_checker() {
         let mut here: Vec<(String, String)> = RULES.iter().map(|(k, a)| (k.to_string(), a.to_string())).collect();
-        from_ts.sort();
         here.sort();
-        assert_eq!(here, from_ts, "RULES in keys.rs and keys.ts differ");
+        assert_eq!(here, rules_in(include_str!("../../../src/lib/keys/keys.ts")), "RULES in keys.rs and keys.ts differ");
+        let checker = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/toolkits/packages/check/index.js")).unwrap();
+        assert_eq!(here, rules_in(&checker), "RULES in keys.rs and @thumbdeck/check differ");
+        let reserved = checker.lines().find(|l| l.starts_with("export const RESERVED")).unwrap();
+        for key in RESERVED {
+            assert!(reserved.contains(&format!("\"{key}\"")), "{key} isn't reserved in @thumbdeck/check");
+        }
     }
 }

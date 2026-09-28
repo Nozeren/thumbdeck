@@ -27,6 +27,13 @@
   let source = $state("");
   let values = $state<Record<string, any>>({});
   let readmeEl = $state<HTMLElement | null>(null);
+  // The shown plugin's icon, read from its folder
+  let iconUrl = $state("");
+  $effect(() => {
+    const p = plugin;
+    iconUrl = "";
+    if (p?.icon) invoke<string>("readme_image", { path: p.folder, src: p.icon }).then((url) => plugin?.id === p.id && (iconUrl = url)).catch(() => {});
+  });
   // The shown plugin's log: its pages' console and errors
   let log = $state<{ at: number; level: string; text: string }[]>([]);
   // The official plugins not installed yet (read when Add a plugin is shown)
@@ -203,7 +210,7 @@
         {:else if plugin}
           <header>
             <div>
-              <h3 class="title">{plugin.name} <span class="ver">{plugin.version ?? ""}</span></h3>
+              <h3 class="title">{#if iconUrl}<img class="picon" src={iconUrl} alt="" />{/if}{plugin.name} <span class="ver">{plugin.version ?? ""}</span></h3>
               {#if plugin.description}<p class="desc">{plugin.description}</p>{/if}
               <p class="hint src">{plugin.linked ? "linked from" : "from"} {plugin.source}{plugin.tag ? ` · ${plugin.tag}` : ""}</p>
             </div>
@@ -299,6 +306,7 @@
   header button { white-space: nowrap; }
   .title { margin: 0; font: 600 16px var(--mono); color: var(--fg); text-transform: none; letter-spacing: 0; }
   .desc { margin: 4px 0 0; }
+  .picon { height: 18px; margin-right: 8px; vertical-align: -3px; }
   .src { margin: 4px 0 0; word-break: break-all; }
   .spacer { flex: 1; }
   .adds { margin: 0; color: var(--fg); font-size: 13px; }

@@ -4,8 +4,7 @@
 # latest release: curl -fsSL .../releases/latest/download/install.sh | bash).
 #
 # Secrets:
-#   RELEASES_TOKEN              fine-grained token: Contents read on thumbdeck and
-#                               thumbdeck-toolkits (the submodule), read and write on
+#   RELEASES_TOKEN              fine-grained token: Contents read and write on
 #                               thumbdeck-releases
 #   TAURI_SIGNING_PRIVATE_KEY   ~/.tauri/thumbdeck.key (its public half is src-tauri/src/updater.pub)
 name: Release
@@ -30,9 +29,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-          token: ${{ secrets.RELEASES_TOKEN }} # the toolkits submodule is private
 
       - name: The tag matches the app's version
         run: |

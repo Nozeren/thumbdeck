@@ -315,6 +315,8 @@ pub struct Info {
     version: Option<String>,
     description: String,
     homepage: Option<String>,
+    /// Its icon file, in its folder
+    icon: Option<String>,
     source: String,
     tag: Option<String>,
     linked: bool,
@@ -340,6 +342,7 @@ pub fn info(p: &Plugin, saved: &HashMap<String, Value>) -> Info {
         version: m.map(|m| m.version.clone()),
         description: m.map(|m| m.description.clone()).unwrap_or_default(),
         homepage: m.and_then(|m| m.homepage.clone()),
+        icon: m.and_then(|m| m.icon.clone()),
         source: p.installed.source.clone(),
         tag: p.installed.tag.clone(),
         linked: p.installed.linked,

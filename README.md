@@ -9,14 +9,16 @@ write code.
 
 - **Projects** on the left: the git repositories in `~/dev`, `~/projects` and your home folder,
   with their branch and a dot when they have uncommitted changes.
-- **The center**: the project's README, its tabs (Logs, Agents, Pull requests, Git) and the
-  output of what you ran, with a tab for each at the bottom.
+- **The center**: the project's README, its tabs (Git, Logs, Agents, Pull requests, … from
+  plugins) and the output of what you ran, with a tab for each at the bottom.
 - **Running and Toolkit** on the right: what you started, and buttons for the project's
   commands.
+- **Plugins** below the projects: plugins with a view of their own (`Ctrl+p`).
 - **The status line** at the bottom: who has the keyboard, the project's branch, and short
   messages.
 
-Everything works from the keyboard, and `?` always lists the keys for where you are.
+Everything works from the keyboard, and `?` always lists the keys for where you are. Almost
+everything thumbdeck shows comes from [plugins](#plugins).
 
 ## Projects and the Toolkit
 
@@ -24,9 +26,8 @@ Every git repository directly inside a scanned folder shows up (**+ › Add fold
 more), and **+ › Add project…** adds any folder. Pin the ones you use most (☆), hide the
 others (×); hidden projects stay at the bottom, to show again (↺).
 
-The Toolkit's buttons come from [toolkit packs](https://github.com/Nozeren/thumbdeck-toolkits)
-that recognise the project: npm / pnpm / yarn scripts, Makefile targets, Django, Python, Docker
-Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs as a tab at the
+The Toolkit's buttons come from plugins that recognise the project: npm / pnpm / yarn scripts,
+Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs as a tab at the
 bottom of the center (● running, ✓ done, ✗ failed), its output streaming in. When it ends while
 you're in another window, you get a notification. Closing the tab doesn't stop the command;
 the Running panel opens it again.
@@ -34,10 +35,9 @@ the Running panel opens it again.
 - **Your own actions**: **+** in the Toolkit (or `a`): a name and a command, run in the project
   folder. Tick *Ask before running* for deploys and resets, and *Run in the project's tmux
   session* for servers, watchers and shells.
-- **Your own packs**: TOML files in `~/.config/thumbdeck/toolkits/`, for kinds of projects the
-  built-in packs don't cover; the format is
-  [SPEC.md](https://github.com/Nozeren/thumbdeck-toolkits/blob/main/SPEC.md). **+ › Update
-  toolkit packs** gets the latest built-in packs without updating the app.
+- **Buttons for a kind of project** thumbdeck doesn't know: a plugin can be just a
+  `plugin.toml` saying when it applies and what the buttons run
+  ([the guide](https://github.com/Nozeren/thumbdeck-plugins/blob/main/GUIDE.md)).
 - Hover a button to see its command; × hides it from this project.
 
 Commands run with your login shell's environment, so tools from Homebrew, fnm or `~/.local/bin`
@@ -50,11 +50,25 @@ window, a shell in the second, the project's Python venv active in both. Buttons
 Django's `runserver`) run in a named window of that session instead, and keep running when
 thumbdeck closes; pressing one again while it runs doesn't start it twice.
 
+## Plugins
+
+thumbdeck's tabs, Toolkit buttons, panels and views come from plugins, installed in **Settings**
+(`,`, or **+ › Settings…**) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
+from any git URL, or from a folder you're working on. The first start offers the official ones.
+thumbdeck looks for newer releases of them when it starts, and marks them (↑) in Settings,
+where you update them, turn them off, reorder them, or read their log. A plugin runs with your
+rights, like an editor plugin: install the ones you trust.
+
+Writing one: the [guide](https://github.com/Nozeren/thumbdeck-plugins/blob/main/GUIDE.md) and
+the [spec](https://github.com/Nozeren/thumbdeck-plugins/blob/main/SPEC.md). A plugin can be
+just a `plugin.toml` with Toolkit buttons, or add HTML pages (tabs, panels, full-window pages,
+a view) that use `window.thumbdeck`, and a backend in any language.
+
 ## Tabs
 
-**+** on the strip at the bottom of the center adds a tab to the project; ⚙ (or `S` in the tab)
-changes its setup or removes it. `1`, `2`, … switch tabs, and `z` gives the center the whole
-window.
+**+** on the strip at the bottom of the center adds a plugin's tab to the project; ⚙ (or `S` in
+the tab) changes its setup or removes it. `1`, `2`, … switch tabs, and `z` gives the center the
+whole window. The official plugins' tabs:
 
 **Logs**: the project's log files, JSON lines (pino, bunyan, structlog, …) or plain text
 (Python, Django, Rust, Go, nginx, …). Show or hide levels, search, jump from error to error,
@@ -75,6 +89,9 @@ checks, conflicts, labels, comments and reviewers show below; 🔔 marks unread 
 **Git**: the repo at a glance. Uncommitted changes with their diffs, the branch against its
 upstream, recent commits, branches and stashes. It only looks; it never changes the repo.
 
+Plugins with a **view** of their own (a timer, a dashboard) are listed below the projects:
+`Ctrl+p`, then Enter, shows one in the center. **Panels** from plugins sit under the Toolkit.
+
 ## The review page
 
 `v` on a PR, or Enter on the Git tab's changes, a commit or a stash, opens its changes over the
@@ -89,7 +106,8 @@ next (remembered until that file changes again), and `-` moves to the file list,
 
 A small pixel character next to the title shows what's going on: it cheers when a run
 finishes, sighs when one fails, waves when Claude is waiting for you, thinks while Claude
-works, and sleeps when you're away. Hover it to see why. Click it (or the title) to pick
+works (with the Agents plugin), holds up a sign when PRs wait for your review (Pull
+requests), and sleeps when you're away. Hover it to see why. Click it (or the title) to pick
 another: octopus, crab, keycap, ghost, axolotl, or none.
 
 ## Keys
@@ -108,9 +126,12 @@ another: octopus, crab, keycap, ghost, axolotl, or none.
 | `a` | add your own action |
 | `s` | stop the command shown |
 | `z` | expand the center / back |
+| `,` | settings: plugins |
+| `Ctrl+p` | the Plugins pane: `j` / `k`, Enter shows a plugin's view |
 | Esc | close menus and forms, leave the filter |
 
-A tab you open (or click in) takes the keyboard, and every tab follows the same rules:
+A tab you open (or click in) takes the keyboard, and every tab follows the same rules (plugins
+that don't aren't loaded):
 
 | key | in every tab |
 | --- | --- |
@@ -158,7 +179,7 @@ Needs Node, Rust (`rustup default stable`) and, on Linux, WebKitGTK (`webkit2gtk
 macOS, the Xcode command line tools (`xcode-select --install`).
 
 ```sh
-git submodule update --init   # the built-in toolkit packs
+git submodule update --init   # the plugins repo (src-tauri/toolkits), for the tests
 npm install
 npm run tauri dev             # run with hot reload
 npm run tauri build           # build the app
@@ -167,23 +188,16 @@ npm run tauri build           # build the app
 Checks: `cd src-tauri && cargo test`, `npm test`, and
 `npx svelte-check --tsconfig ./tsconfig.json`.
 
-The toolkit packs are compiled in from the `src-tauri/toolkits` submodule. To try changes to
-packs in another checkout: `THUMBDECK_TOOLKITS=~/dev/thumbdeck-toolkits npm run tauri dev`.
+The plugins repo is checked out in `src-tauri/toolkits` (it isn't compiled in: its tests check
+that the official plugins load, and that thumbdeck and `@thumbdeck/check` agree on the keys).
+To work on a plugin, link its folder in Settings › Plugins; `THUMBDECK_CATALOG=<file or URL>`
+replaces the catalog the first start offers.
 
-### Adding a tab (an extension)
+### Adding a tab
 
-Extensions are built in: one Rust module for the setup and commands, one folder for the tab.
-
-1. `src-tauri/src/extensions/<name>/`: its `Setup` (serde, with a `Default`) and whatever it
-   needs; add it to `AVAILABLE` in `src-tauri/src/extensions/mod.rs`, and its commands to
-   `lib.rs`.
-2. `src/lib/extensions/<name>/`: the tab and its setup form, Svelte components taking
-   `TabProps` / `SetupProps`. The tab also offers `handleKey` (for when it has the keyboard)
-   and `keymap` (its keys, for `?` and the status line); add both components to
-   `src/lib/extensions/index.ts`.
-3. Its keys go in `src/lib/keys/maps.ts`, following the rules there; `npm test` checks them.
-
-`git` is a compact example; `logs` is the most complete one.
+Tabs are plugins: see the [guide](https://github.com/Nozeren/thumbdeck-plugins/blob/main/GUIDE.md).
+thumbdeck's side of plugins is `src-tauri/src/plugins` (manifests, installing, frames, the page
+API, backends) and `src/lib/plugins` (frames, setup forms).
 
 ### Releasing
 
