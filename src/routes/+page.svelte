@@ -108,6 +108,9 @@
 
   async function loadPluginViews() {
     views = await invoke<View[]>("plugin_views");
+    // Statuses backends said before the page was listening
+    const said = await invoke<Record<string, string | null>>("plugin_statuses");
+    for (const [plugin, text] of Object.entries(said)) if (!(plugin in statuses)) statuses[plugin] = text;
     if (shownView && !views.some((v) => v.plugin === shownView)) shownView = null;
     paneCursor = Math.min(paneCursor, Math.max(0, views.length - 1));
   }
@@ -717,6 +720,7 @@
       const { plugin, method, params } = e.payload;
       if (method === "ui.say") say(String(params?.text ?? ""), !!params?.error);
       else if (method === "ui.mood") host.mood(`backend:${plugin}`, String(params?.signal), params?.value ?? null);
+      else if (method === "ui.status") statuses[plugin] = params?.text ?? null;
       else if (method === "ui.badge") {
         for (const f of liveFrames) if (f.tab.plugin === plugin) badges[f.key] = params?.value == null ? null : String(params.value);
       }

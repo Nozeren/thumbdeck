@@ -8,6 +8,8 @@
 
   const many = (f: Field) => f.type === "list" || f.type === "folders" || f.type === "files";
   const folderish = (f: Field) => f.type === "folder" || f.type === "folders";
+  // Secret fields whose value is shown (dots otherwise)
+  let revealed = $state(new Set<string>());
 
   async function browse(f: Field, index: number | null) {
     const picked = await open({ directory: folderish(f), title: f.label });
@@ -45,6 +47,12 @@
       {:else if f.type === "json"}
         <textarea rows="5" class="json" value={JSON.stringify(values[f.key], null, 2)}
                   oninput={(e) => { try { values[f.key] = JSON.parse(e.currentTarget.value); e.currentTarget.classList.remove("bad"); } catch { e.currentTarget.classList.add("bad"); } }}></textarea>
+      {:else if f.type === "secret"}
+        <span class="row">
+          <input class="secret" type={revealed.has(f.key) ? "text" : "password"} autocomplete="off" spellcheck="false" bind:value={values[f.key]} />
+          <button type="button" class="ghost small" onclick={() => (revealed = revealed.has(f.key) ? new Set() : new Set([f.key]))}>
+            {revealed.has(f.key) ? "Hide" : "Show"}</button>
+        </span>
       {:else if f.type === "folder" || f.type === "file"}
         <span class="row">
           <input bind:value={values[f.key]} />
@@ -62,11 +70,11 @@
   .field { display: flex; flex-direction: column; gap: 6px; font: 12px var(--mono); color: var(--grey); }
   .row { display: flex; align-items: center; gap: 6px; }
   .row input { flex: 1; min-width: 0; }
-  .field input, input[type="number"], select {
+  .field input, input[type="number"], input.secret, select {
     background: var(--bg1); border: 1px solid var(--bg2); border-radius: 8px; padding: 8px 10px;
     color: var(--fg); font: 13px var(--mono); outline: none;
   }
-  .field input:focus, input[type="number"]:focus, select:focus { border-color: var(--orange); }
+  .field input:focus, input[type="number"]:focus, input.secret:focus, select:focus { border-color: var(--orange); }
   .small { padding: 5px 10px; }
   :global(textarea.json.bad) { border-color: var(--red) !important; }
   .add { align-self: flex-start; }

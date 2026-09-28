@@ -144,7 +144,14 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    // Plugins' settings can hold tokens (secret fields): readable by you only
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 /// Load, change, save.

@@ -198,7 +198,7 @@ impl From<ChoiceRaw> for Choice {
     }
 }
 
-const FIELD_TYPES: &[&str] = &["text", "number", "bool", "choice", "list", "folder", "file", "folders", "files", "json"];
+const FIELD_TYPES: &[&str] = &["text", "number", "bool", "choice", "list", "folder", "file", "folders", "files", "json", "secret"];
 
 impl Field {
     /// The value it has when nothing was saved

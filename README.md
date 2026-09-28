@@ -89,8 +89,20 @@ checks, conflicts, labels, comments and reviewers show below; 🔔 marks unread 
 **Git**: the repo at a glance. Uncommitted changes with their diffs, the branch against its
 upstream, recent commits, branches and stashes. It only looks; it never changes the repo.
 
-Plugins with a **view** of their own (a timer, a dashboard) are listed below the projects:
-`Ctrl+p`, then Enter, shows one in the center. **Panels** from plugins sit under the Toolkit.
+**Env**: the project's `.env` against its `.env.example`: what's missing, empty or still the
+example's placeholder. Values stay hidden unless you ask; `a` adds the missing keys.
+
+**Notes**: a scratchpad and checklist for each project, kept by thumbdeck (not in the repo).
+
+Plugins with a **view** of their own are listed below the projects: `Ctrl+p`, then Enter, shows
+one in the center. **Panels** from plugins sit under the Toolkit. The official views:
+
+- **Calendar**: your calendars' coming events (iCal links), what's next in the pane, reminders.
+- **Azure Boards**: your Azure DevOps work items with their details; `y` copies a branch name
+  for one. It needs a personal access token (Work Items: Read), kept in a Settings field that
+  hides it; set the organization to `demo` to try it.
+- **Ports**: what's listening on which port and the project it runs in; `x` stops it (it asks).
+- **Dev utils**: paste a JWT, JSON, base64, a timestamp or a URL and see it decoded; UUIDs.
 
 ## The review page
 

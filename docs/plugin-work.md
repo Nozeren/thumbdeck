@@ -120,17 +120,13 @@ while testing, and the first-run catalog is read from the local checkout
 
 ## Needs you
 
-- **Publish**: (renamed to `thumbdeck-plugins`; its plugins are now in `plugins/tabs/` and
-  `plugins/toolkits/`.) Make it public (thumbdeck fetches the catalog and installs plugins
-  from it without a login), push the
-  submodule's `plugins` branch first, then thumbdeck's (its commits point at the submodule's).
-  Tag the official plugins (`git-v1.0.0`, `logs-v1.0.0`, … the versions in their plugin.toml)
-  so installs take a release rather than the branch. Publish the three npm packages
-  (`packages/plugin`, `packages/backend`, `packages/check`).
+- **npm**: publish the three packages (`packages/plugin`, `packages/backend`,
+  `packages/check`) from your account; until then plugins use the copies in the repo.
+- **Azure Boards with a real organization**: it was tried with the sample work items
+  (organization `demo`) only; the calls follow Azure DevOps' REST API 7.1 docs. A token with
+  Work Items: Read is all it needs.
 - **Confirm**: the avatar only reacts to Claude when the Agents plugin is installed (it sends
   `waiting` / `working`).
-- **The release workflow** no longer checks out the plugins repo (the build doesn't need it);
-  worth watching on the next release. `install.sh` doesn't update the submodule either.
 - **The README's screenshot** shows the old window (no Plugins pane).
 
 ## Decisions made
@@ -226,6 +222,19 @@ while testing, and the first-run catalog is read from the local checkout
     authors. This file keeps the decisions; CLAUDE.md's map says where things are.
 40. **The build no longer needs the plugins repo**, so the release workflow and `install.sh`
     don't check it out (only the tests read it).
+
+41. **A `secret` setting type** (for tokens): a password field with Show / Hide; the value
+    is kept in settings.json like the rest, and settings.json is now readable only by you
+    (0600). A keyring was more than this needed.
+42. **Thumbdeck remembers each backend's last pane status**: a backend that starts with
+    thumbdeck says it before the page listens, so the page asks for them when it loads.
+43. **Azure Boards is read-only** (like Git and PRs): it lists, shows and copies (a branch
+    name, `#id title`); changing work items is left to the browser (`o`).
+44. **Day-to-day plugins**: Ports (a view; stops a process only after asking), Env check (a tab
+    for projects with an env example; values hidden; adds missing keys only after asking), Dev
+    utils (a view; nothing leaves the computer), Notes (a tab; kept in the plugin's storage,
+    not in the project). Ports, Env check, Dev utils and Notes are recommended in the catalog;
+    Azure Boards and Calendar aren't (they need an account).
 
 ## Log
 
@@ -334,3 +343,21 @@ while testing, and the first-run catalog is read from the local checkout
   the submodule.
 - Tested: every check above; `npm run check` on every plugin, example and the template; the
   checker's CLI on a good and a missing plugin (exit 0 / 1).
+
+### After 0.5.0: Calendar, Azure Boards and day-to-day plugins
+
+- The plugins repo organized by kind (`plugins/tabs`, `plugins/toolkits`, `plugins/views`),
+  MIT licenses, both repos public, the official plugins tagged, thumbdeck 0.5.0 released (the
+  CI build passed for Linux and macOS).
+- Calendar (a view, reminders, a pane status; iCal links), Azure Boards (work items with a
+  token; `demo` shows samples), Ports, Env check, Dev utils, Notes; each with tests on its pure
+  parts (`node --test`), a catalog entry and a tag.
+- thumbdeck: the `secret` setting type, settings.json 0600, backends' statuses remembered
+  (Azure Boards' "4 open" didn't show before), a backend's `ui.status` reaching the pane.
+- Tried in the dev app (scratch profile): Calendar's status and reminder; Azure Boards' list,
+  details and pane status (narrow and wide); Ports listing ports with their projects and
+  stopping a throwaway server after the question; Env check's statuses, hidden values and
+  adding the missing keys (and reading the file again); Dev utils' idle page; Notes' tab and
+  `x`; a secret field's dots and Show / Hide (in a setup form, added for the test).
+- GitHub's push protection refused a made-up Stripe-like key in a test; the test uses a plain
+  string now.

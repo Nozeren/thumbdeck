@@ -360,6 +360,10 @@ impl plugins::backend::Host for AppHost {
                 let _ = app.emit("plugin-actions-changed", plugin);
             }
             "ui.say" | "ui.badge" | "ui.status" | "ui.mood" => {
+                if method == "ui.status" {
+                    let text = params["text"].as_str().map(str::to_string);
+                    backend_statuses().lock().unwrap().insert(plugin.to_string(), text);
+                }
                 let _ = app.emit("plugin-backend-ui", serde_json::json!({ "plugin": plugin, "method": method, "params": params }));
             }
             "ui.notify" => {
@@ -445,6 +449,18 @@ type ActionsCache = std::sync::Mutex<HashMap<(String, String), (Vec<Option<std::
 fn actions_cache() -> &'static ActionsCache {
     static CACHE: std::sync::OnceLock<ActionsCache> = std::sync::OnceLock::new();
     CACHE.get_or_init(Default::default)
+}
+
+/// Each backend's last pane status: a backend that starts with thumbdeck says it before the
+/// page listens, so the page asks for them when it loads
+fn backend_statuses() -> &'static std::sync::Mutex<HashMap<String, Option<String>>> {
+    static STATUSES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Option<String>>>> = std::sync::OnceLock::new();
+    STATUSES.get_or_init(Default::default)
+}
+
+#[tauri::command]
+fn plugin_statuses() -> HashMap<String, Option<String>> {
+    backend_statuses().lock().unwrap().clone()
 }
 
 fn forget_backend_actions(plugin: &str) {
@@ -687,7 +703,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
-            plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, open_devtools,
+            plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, plugin_statuses, open_devtools,
             check_update, install_update, restart, readme_image,
             branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
