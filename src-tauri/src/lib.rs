@@ -1,6 +1,5 @@
 mod branch;
 mod extensions;
-mod packs;
 mod plugins;
 mod projects;
 mod runner;
@@ -14,7 +13,7 @@ use plugins::toolkit::{self, Action, Provider};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Serialize)]
 struct Details {
@@ -22,7 +21,7 @@ struct Details {
     actions: Vec<Action>,
     /// Detected actions you hid, so they can be brought back
     hidden: Vec<Action>,
-    /// Toolkit packs and plugins that couldn't be used, and why
+    /// Plugins whose buttons couldn't be worked out, and why
     problems: Vec<String>,
     readme: Option<String>,
     /// Extension tabs turned on for the project
@@ -72,8 +71,17 @@ fn details(app: &AppHandle, path: &str) -> Details {
         tmux: c.tmux,
     });
     let (providers, mut problems) = providers(&s);
-    let toolkit = toolkit::detect(&providers, Path::new(path));
+    let mut toolkit = toolkit::detect(&providers, Path::new(path));
     problems.extend(toolkit.problems);
+    let loaded = plugins::load(&s.plugins);
+    for p in toolkit::active(&providers, Path::new(path)) {
+        let Some(watch) = &p.backend_actions else { continue };
+        match backend_actions(app, &p.id, &p.name, path, watch) {
+            Some(Ok(list)) => toolkit.actions.extend(list.into_iter().filter(|a| !toolkit.actions.iter().any(|x| x.id == a.id)).collect::<Vec<_>>()),
+            Some(Err(e)) => problems.push(format!("{}: {e}", p.name)),
+            None => {} // being asked; the page asks again when they're here
+        }
+    }
     let (hidden, shown): (Vec<_>, Vec<_>) =
         toolkit.actions.into_iter().partition(|a| hidden_ids.contains(&a.id.as_str()));
     Details {
@@ -81,22 +89,14 @@ fn details(app: &AppHandle, path: &str) -> Details {
         hidden,
         problems,
         readme: projects::readme(Path::new(path)),
-        tabs: {
-            let loaded = plugins::load(&s.plugins);
-            s.extensions.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect()
-        },
+        tabs: s.extensions.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
     }
 }
 
-/// What brings buttons to the Toolkit: the packs, then the working plugins (a plugin replaces
-/// the pack with its id); with what went wrong
+/// What brings buttons to the Toolkit: the working plugins; with what went wrong (missing
+/// requirements)
 fn providers(s: &settings::Settings) -> (Vec<Provider>, Vec<String>) {
-    let packs = packs::load();
-    let mine = plugins::providers(&plugins::load(&s.plugins));
-    let mut all: Vec<Provider> = packs.packs.into_iter().filter(|p| !mine.iter().any(|m| m.id == p.id)).collect();
-    all.extend(mine);
-    let (all, more) = toolkit::resolve(all);
-    (all, packs.problems.into_iter().chain(more).collect())
+    toolkit::resolve(plugins::providers(&plugins::load(&s.plugins)))
 }
 
 /// Ids of hidden actions from before toolkit packs, where they changed
@@ -151,7 +151,7 @@ async fn readme_image(path: String, src: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn project_details(app: AppHandle, path: String) -> Details {
-    details(&app, &path)
+    tauri::async_runtime::spawn_blocking(move || details(&app, &path)).await.expect("details")
 }
 
 /// Change a project's toolkit; returns the new details.
@@ -190,12 +190,6 @@ fn run_action(app: AppHandle, runs: State<'_, runner::Runs>, path: String, comma
 #[tauri::command]
 async fn open_in_tmux(path: String, name: String) -> Result<String, String> {
     terminal::open(&path, &name)
-}
-
-/// Clone or pull the toolkit packs repository; returns a short message
-#[tauri::command]
-async fn update_packs() -> Result<String, String> {
-    packs::update()
 }
 
 /// Run a toolkit action in a window of the project's tmux session
@@ -275,6 +269,9 @@ async fn plugin_add(app: AppHandle, source: String, link: bool) -> Result<Vec<pl
 async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<plugins::Info>, String> {
     let s = settings::load(&app);
     let p = s.plugins.iter().find(|p| p.id == id).cloned().ok_or_else(|| format!("no plugin {id}"))?;
+    // Its backend starts again from the new state when next needed
+    app.state::<plugins::backend::Backends>().stop(&id);
+    forget_backend_actions(&id);
     let s = match change.as_str() {
         "enable" | "disable" => settings::update(&app, |s| settings::add_plugin(s, plugins::install::Installed { enabled: change == "enable", ..p }))?,
         "update" => {
@@ -293,8 +290,14 @@ async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<p
 #[tauri::command]
 async fn plugin_save_settings(app: AppHandle, id: String, settings: serde_json::Value) -> Result<Vec<plugins::Info>, String> {
     let s = settings::update(&app, |s| {
-        s.plugin_settings.insert(id, settings);
+        s.plugin_settings.insert(id.clone(), settings);
     })?;
+    // A running backend hears about it
+    let loaded = plugins::load(&s.plugins);
+    if let Some((_, m)) = plugins::find(&loaded, &id) {
+        let full = plugins::manifest::complete(&m.settings, s.plugin_settings.get(&id).unwrap_or(&serde_json::Value::Null));
+        app.state::<plugins::backend::Backends>().event(&id, "settings", full);
+    }
     Ok(plugin_infos(&s))
 }
 
@@ -332,6 +335,133 @@ async fn plugin_call(app: AppHandle, plugin: String, project: Option<String>, me
             .map_err(|e| e.to_string())?
         }
     }
+}
+
+// ------------------------------------------------------------ plugin backends
+
+/// What a backend can reach: the plugin's log, the page (events, messages), storage
+struct AppHost(AppHandle);
+
+impl plugins::backend::Host for AppHost {
+    fn log(&self, plugin: &str, text: &str) {
+        self.0.state::<plugins::log::Logs>().add(plugin, "stderr", text);
+    }
+
+    fn from_backend(&self, plugin: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let app = &self.0;
+        match method {
+            "event" => {
+                let _ = app.emit("plugin-backend-event", serde_json::json!({ "plugin": plugin, "name": params["name"], "data": params["data"] }));
+            }
+            "actions.refresh" => {
+                forget_backend_actions(plugin);
+                let _ = app.emit("plugin-actions-changed", plugin);
+            }
+            "ui.say" | "ui.badge" | "ui.status" | "ui.mood" => {
+                let _ = app.emit("plugin-backend-ui", serde_json::json!({ "plugin": plugin, "method": method, "params": params }));
+            }
+            "ui.notify" => {
+                use tauri_plugin_notification::NotificationExt;
+                let title = params["title"].as_str().unwrap_or_default();
+                let body = params["body"].as_str().unwrap_or_default();
+                app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())?;
+            }
+            "storage.get" | "storage.set" | "storage.remove" => {
+                let project = params.get("project").and_then(|p| p.as_str()).map(std::path::PathBuf::from);
+                let caller = plugins::api::Caller { plugin, project: project.as_deref(), settings: serde_json::Value::Null };
+                return plugins::api::call(&caller, method, params.clone());
+            }
+            _ => return Err(format!("there's no {method} for backends")),
+        }
+        Ok(serde_json::Value::Null)
+    }
+}
+
+/// How to start a working plugin's backend
+fn backend_spec(app: &AppHandle, s: &settings::Settings, loaded: &[plugins::Plugin], plugin: &str) -> Result<plugins::backend::Spec, String> {
+    let (p, m) = plugins::find(loaded, plugin).ok_or_else(|| format!("the plugin {plugin} isn't on"))?;
+    let b = m.backend.as_ref().ok_or_else(|| format!("{} has no backend", m.name))?;
+    let settings = plugins::manifest::complete(&m.settings, s.plugin_settings.get(plugin).unwrap_or(&serde_json::Value::Null));
+    let data = plugins::api::data_folder(plugin).unwrap_or_default();
+    Ok(plugins::backend::Spec {
+        plugin: plugin.to_string(),
+        folder: p.folder.clone(),
+        command: b.command.clone(),
+        init: serde_json::json!({
+            "api": m.api, "thumbdeck": version(app), "folder": p.folder, "dataFolder": data, "settings": settings,
+        }),
+    })
+}
+
+fn call_backend(app: &AppHandle, plugin: &str, method: &str, params: serde_json::Value, timeout: std::time::Duration) -> Result<serde_json::Value, String> {
+    let s = settings::load(app);
+    let spec = backend_spec(app, &s, &plugins::load(&s.plugins), plugin)?;
+    let host: std::sync::Arc<dyn plugins::backend::Host> = std::sync::Arc::new(AppHost(app.clone()));
+    app.state::<plugins::backend::Backends>().call(host, &spec, method, params, timeout)
+}
+
+/// A frame's call to its plugin's backend; `params` (an object) gets the frame's project
+#[tauri::command]
+async fn plugin_backend_call(app: AppHandle, plugin: String, project: Option<String>, method: String, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut params = match params {
+        serde_json::Value::Null => serde_json::json!({}),
+        p @ serde_json::Value::Object(_) => p,
+        _ => return Err("backend.call's params are an object (or nothing)".into()),
+    };
+    params["project"] = match &project {
+        Some(path) => serde_json::json!({ "path": path, "name": Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()) }),
+        None => serde_json::Value::Null,
+    };
+    tauri::async_runtime::spawn_blocking(move || call_backend(&app, &plugin, &method, params, std::time::Duration::from_secs(60)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+type ActionsCache = std::sync::Mutex<HashMap<(String, String), (Vec<Option<std::time::SystemTime>>, Result<Vec<Action>, String>)>>;
+
+fn actions_cache() -> &'static ActionsCache {
+    static CACHE: std::sync::OnceLock<ActionsCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn forget_backend_actions(plugin: &str) {
+    actions_cache().lock().unwrap().retain(|(p, _), _| p != plugin);
+}
+
+/// A backend's Toolkit buttons for a project, when they're known: asked once (in the
+/// background, so the Toolkit doesn't wait for a backend to start), then again when a watched
+/// file changes or the plugin asks for a refresh. None: being asked; `plugin-actions-changed`
+/// tells the page when they're here.
+fn backend_actions(app: &AppHandle, plugin: &str, name: &str, path: &str, watch: &[String]) -> Option<Result<Vec<Action>, String>> {
+    static ASKING: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<(String, String)>>> = std::sync::OnceLock::new();
+    let dir = Path::new(path);
+    let stamp: Vec<_> = watch.iter().map(|f| std::fs::metadata(dir.join(f)).and_then(|m| m.modified()).ok()).collect();
+    let key = (plugin.to_string(), path.to_string());
+    let cached = actions_cache().lock().unwrap().get(&key).cloned();
+    if let Some((s, list)) = &cached {
+        if *s == stamp {
+            return Some(list.clone());
+        }
+    }
+    if !ASKING.get_or_init(Default::default).lock().unwrap().insert(key.clone()) {
+        return cached.map(|(_, list)| list); // asked already
+    }
+    let (app, plugin, name, path) = (app.clone(), plugin.to_string(), name.to_string(), path.to_string());
+    std::thread::spawn(move || {
+        let project = serde_json::json!({ "path": path, "name": Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()) });
+        let answer = call_backend(&app, &plugin, "actions", serde_json::json!({ "project": project }), std::time::Duration::from_secs(10))
+            .and_then(|a| plugins::backend_actions(&plugin, &name, &a));
+        actions_cache().lock().unwrap().insert(key.clone(), (stamp, answer));
+        ASKING.get().unwrap().lock().unwrap().remove(&key);
+        let _ = app.emit("plugin-actions-changed", plugin);
+    });
+    cached.map(|(_, list)| list)
+}
+
+/// Ask a plugin's backend for its Toolkit buttons again (the page shows them after)
+#[tauri::command]
+fn plugin_refresh_actions(plugin: String) {
+    forget_backend_actions(&plugin);
 }
 
 /// A line for a plugin's log (its page's console)
@@ -576,12 +706,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(runner::Runs::default())
         .manage(plugins::log::Logs::default())
+        .manage(plugins::backend::Backends::default())
         .register_uri_scheme_protocol("plugin", |ctx, request| {
             let loaded = plugins::load(&settings::load(ctx.app_handle()).plugins);
             plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
         })
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
-            tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, edit_tab, logs_check, logs_list, logs_open,
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux,
+            tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab, logs_check, logs_list, logs_open,
             logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
             branch_status, prs_diff,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
@@ -590,6 +721,12 @@ pub fn run() {
             watch_plugin_updates(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Backends get to shut down
+            if let tauri::RunEvent::Exit = event {
+                app.state::<plugins::backend::Backends>().stop_all();
+            }
+        });
 }

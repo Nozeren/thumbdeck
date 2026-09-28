@@ -300,13 +300,15 @@ action = { name = "{item}", command = "{pm} run {item}" }
 | `{ file = "Makefile", regex = "^([A-Za-z0-9_.-]+):" }` | the first capture group of each matching line |
 | `{ command = "just --summary", split = " " }` | a command's output, split by lines (or `split`); 2 seconds at most |
 
-Results are cached until a file in `watch = [...]` changes (for `json` and `file` sources, that
-file is watched already).
+`json` and `file` sources are read each time. A `command` source's items are kept until a file
+in `watch = [...]` changes (a minute, when there's no `watch`).
 
 ### Actions from the backend
 
 When a list needs real code, the backend answers the `actions` request (see
-[The backend](#the-backend)) with buttons in the same shape as `[[action]]`:
+[The backend](#the-backend)) with buttons in the same shape as `[[action]]`. The Toolkit
+doesn't wait for them: the rest of it shows at once, and the backend's buttons join as soon as
+it answers.
 
 ```toml
 [backend]
@@ -616,7 +618,8 @@ watching things while no page is shown, working out Toolkit buttons.
 ```toml
 [backend]
 command = "node backend.js"   # run in the plugin folder, with your login shell environment
-install = "npm ci --omit=dev" # optional: run after installing and after each update
+install = "npm ci --omit=dev" # optional: run after installing and after each update (not for a
+                              # linked folder: run it yourself there)
 actions = true                # optional: answers `actions`
 watch = ["justfile"]          # optional: when to ask for actions again
 ```
@@ -638,22 +641,23 @@ What thumbdeck sends:
 
 | method | when | answer |
 | --- | --- | --- |
-| `initialize` | first, with the API version, folders and settings | `{}` |
+| `initialize` | first: `{ api, thumbdeck, folder, dataFolder, settings }` | `{}` |
 | `actions` | a project is shown (`actions = true`), or a watched file changed | `[{ name, command, description?, confirm?, tmux? }]` |
 | `settings` (event) | the settings were saved | — |
 | `shutdown` | thumbdeck quits; exit within 2 seconds | `{}` |
 | anything else | a page called `td.backend.call(method, params)` | whatever the page expects |
 
-Every request from a page carries the frame's project as `params.project` (null for app scope).
+A page's `td.backend.call(method, params)` sends `params` (an object, or nothing) with the
+frame's project added as `params.project`: `{ path, name }`, or null for app-wide frames.
 
 What the backend can send thumbdeck:
 
 | method | does |
 | --- | --- |
 | `event` (event) | `{ name, data }` to every frame of the plugin listening with `td.backend.on(name)` |
-| `ui.say`, `ui.notify`, `ui.badge`, `ui.status`, `ui.mood` | as the page API |
+| `ui.say`, `ui.notify`, `ui.badge`, `ui.status`, `ui.mood` | as the page API (a badge goes on all the plugin's tabs) |
 | `actions.refresh` (event) | ask for Toolkit buttons again |
-| `storage.get`, `storage.set` | as the page API, with `scope` and `project` in params |
+| `storage.get`, `storage.set`, `storage.remove` | as the page API; `project` (a folder) in params for project scope |
 
 An error answer is `{"id": 2, "error": {"message": "No such log"}}`; the page's
 `td.backend.call` throws it as an `Error` with that message.
@@ -663,8 +667,11 @@ An error answer is `{"id": 2, "error": {"message": "No such log"}}`; the page's
 - thumbdeck starts the backend when it's first needed (a page calls it, or it answers
   `actions`), and keeps one running per plugin, for every project and frame.
 - Its stderr goes to the plugin's log. So does anything that isn't a JSON line on stdout.
-- If it exits, it's started again at the next call; after three crashes within a minute the
-  plugin is marked failed in Settings, with its log.
+- If it exits, it's started again at the next call; after three crashes within a minute it
+  isn't, and calls say so (its log is in Settings). Turning the plugin off and on, or updating
+  it, gives it a fresh start.
+- Turning the plugin off, updating or removing it stops its backend; saving its settings sends
+  the `settings` event.
 
 ### The Node helper
 

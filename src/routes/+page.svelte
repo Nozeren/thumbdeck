@@ -131,7 +131,8 @@
       const r = runs.find((x) => x.id === id);
       return r ? { label: r.label, projectPath: r.projectPath } : null;
     },
-    refreshToolkit: async () => {
+    refreshToolkit: async (plugin) => {
+      await invoke("plugin_refresh_actions", { plugin });
       if (selected) details = await invoke<Details>("project_details", { path: selected.path });
     },
     badge: (key, value) => (badges[key] = value),
@@ -380,7 +381,6 @@
     const path = await open({ directory: true, title });
     if (typeof path === "string") await edit(change, path);
   }
-  // Clone / pull the packs repository, then show what the new packs detect
   // ------------------------------------------------------------ updates
   let update = $state<Update | null>(null); // a newer release (checked on start)
 
@@ -482,18 +482,6 @@
     }
   }
 
-  async function updatePacks() {
-    addMenu = false;
-    say("updating toolkit packs…");
-    try {
-      say(await invoke<string>("update_packs"));
-    } catch (err) {
-      say(String(err), true);
-      return;
-    }
-    applyList(await invoke<ProjectList>("list_projects")); // icons
-    if (selected) details = await invoke<Details>("project_details", { path: selected.path });
-  }
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
   // Runs whose tab you closed (they keep running; the Running panel opens them again)
@@ -614,6 +602,17 @@
       }
     });
     const unlistenUpdate = listen<Update>("update-available", (e) => (update = e.payload));
+    // A backend changed its Toolkit buttons, or has something to say
+    const unlistenActions = listen<string>("plugin-actions-changed", async () => {
+      if (selected) details = await invoke<Details>("project_details", { path: selected.path });
+    });
+    const unlistenBackendUi = listen<{ plugin: string; method: string; params: any }>("plugin-backend-ui", (e) => {
+      const { plugin, method, params } = e.payload;
+      if (method === "ui.say") say(String(params?.text ?? ""), !!params?.error);
+      else if (method === "ui.badge") {
+        for (const f of liveFrames) if (f.tab.plugin === plugin) badges[f.key] = params?.value == null ? null : String(params.value);
+      }
+    });
     const unlistenPlugins = listen<Record<string, string>>("plugin-updates", (e) => {
       pluginUpdates = e.payload;
       const n = Object.keys(e.payload).length;
@@ -632,6 +631,8 @@
       unlistenExit.then((f) => f());
       unlistenUpdate.then((f) => f());
       unlistenPlugins.then((f) => f());
+      unlistenActions.then((f) => f());
+      unlistenBackendUi.then((f) => f());
       clearInterval(timer);
       clearInterval(idle);
     };
@@ -663,7 +664,6 @@
               <button onclick={() => pickFolder("add")}>Add project…</button>
               <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
               <button onclick={openSettings}>Settings…{#if Object.keys(pluginUpdates).length}<span class="menu-new"> ↑ {Object.keys(pluginUpdates).length}</span>{/if}</button>
-              <button onclick={updatePacks}>Update toolkit packs</button>
               <button onclick={checkForUpdates}>Check for updates</button>
             </div>
           {/if}
@@ -687,7 +687,7 @@
                 <li class="project" class:muted={p.hidden}>
                   <button class="pick" class:active={selected?.path === p.path && !p.hidden}
                           disabled={p.hidden} onclick={() => select(p)}>
-                    <span class="kind" style="color: var(--{color})">{glyph}</span>
+                    {#if p.icon}<img class="kind" src={p.icon} alt="" />{:else}<span class="kind" style="color: var(--{color})">{glyph}</span>{/if}
                     <span class="name">{p.name}</span>
                     {#if p.dirty}<span class="changes" title="uncommitted changes"></span>{/if}
                   </button>
@@ -1030,6 +1030,7 @@
   .pick.active { background: var(--bg2); }
   .pick:disabled { cursor: default; }
   .kind { width: 16px; text-align: center; font-family: var(--mono); }
+  img.kind { height: 14px; object-fit: contain; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .muted { opacity: 0.55; }
   :global(.icon) { width: 22px; height: 22px; flex: none; border-radius: 6px; color: var(--grey); font: 13px var(--mono); }

@@ -122,6 +122,15 @@ fn settle(clone: &Path, folder: &Path, id: &str, tag: Option<&str>, prefix: &str
     Ok(())
 }
 
+/// Run the plugin's `[backend] install` step (e.g. `npm ci`), after installing or updating
+fn install_step(folder: &Path) -> Result<(), String> {
+    let m = manifest::read(folder).map_err(|p| p.join("; "))?;
+    match m.backend.and_then(|b| b.install) {
+        Some(cmd) => super::api::shell_output(folder, &cmd, 600_000).map(|_| ()).map_err(|e| format!("its install step failed: {e}")),
+        None => Ok(()),
+    }
+}
+
 /// Clone a plugin and check out its latest release. `plugins` is where clones go.
 pub fn install(source: &str, plugins: &Path) -> Result<Installed, String> {
     let source = source.trim();
@@ -151,6 +160,7 @@ pub fn install(source: &str, plugins: &Path) -> Result<Installed, String> {
         let prefix = tag_prefix(&id, sub.is_some());
         let tag = latest_tag(&tmp, &prefix)?.map(|(t, _)| t);
         settle(&tmp, &folder, &id, tag.as_deref(), &prefix)?;
+        install_step(&folder)?;
         std::fs::rename(&tmp, plugins.join(&id)).map_err(|e| e.to_string())?;
         Ok(Installed { id, source: source.to_string(), tag, enabled: true, linked: false })
     })();
@@ -197,9 +207,10 @@ pub fn update(p: &Installed, plugins: &Path) -> Result<Installed, String> {
     if p.tag.is_none() {
         git_ok(Some(&clone), &["merge", "-q", "--ff-only", "@{upstream}"])?;
         settle(&clone, &folder, &p.id, None, &prefix)?;
+        install_step(&folder)?;
         return Ok(p.clone());
     }
-    if let Err(e) = settle(&clone, &folder, &p.id, Some(&next), &prefix) {
+    if let Err(e) = settle(&clone, &folder, &p.id, Some(&next), &prefix).and_then(|_| install_step(&folder)) {
         // Back to the release that worked
         if let Some(old) = &p.tag {
             let _ = git_ok(Some(&clone), &["checkout", "-q", "--detach", old]);
@@ -329,6 +340,22 @@ pub mod tests {
         broken.commit("x");
         assert!(install(&broken.url(), &plugins).unwrap_err().contains("lowercase"));
         assert_eq!(std::fs::read_dir(&plugins).unwrap().count(), 0, "nothing left behind");
+    }
+
+    #[test]
+    fn the_install_step_runs_and_its_failure_stops_the_install() {
+        let d = TempDir::new("install-step");
+        let plugins = d.0.join("plugins");
+        let up = Upstream::new(d.0.join("withdeps"));
+        let manifest = |install: &str| format!("id = \"withdeps\"\nname = \"W\"\nversion = \"1.0.0\"\napi = 1\n[backend]\ncommand = \"true\"\ninstall = \"{install}\"\n");
+        std::fs::write(up.0.join("plugin.toml"), manifest("exit 4")).unwrap();
+        up.commit("broken install");
+        assert!(install(&up.url(), &plugins).unwrap_err().contains("install step failed"));
+        assert!(!plugins.join("withdeps").exists());
+        std::fs::write(up.0.join("plugin.toml"), manifest("echo done > installed.txt")).unwrap();
+        up.commit("fixed");
+        let p = install(&up.url(), &plugins).unwrap();
+        assert!(p.folder(&plugins).join("installed.txt").exists());
     }
 
     #[test]

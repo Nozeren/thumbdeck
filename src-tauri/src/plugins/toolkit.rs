@@ -45,8 +45,8 @@ pub struct Generate {
     pub source: Source,
     #[serde(default)]
     pub skip: Vec<String>,
+    /// A command source's result is kept until one of these files changes
     #[serde(default)]
-    #[allow(dead_code)] // for command sources, which aren't supported yet
     pub watch: Vec<String>,
     pub action: ActionDef,
 }
@@ -61,7 +61,7 @@ pub struct Source {
     pub file: Option<String>,
     pub regex: Option<String>,
     pub command: Option<String>,
-    #[allow(dead_code)] // for command sources, which aren't supported yet
+    /// How a command's output is cut into items (by lines when not given)
     pub split: Option<String>,
 }
 
@@ -105,11 +105,13 @@ pub struct Provider {
     pub vars: BTreeMap<String, String>,
     pub actions: Vec<ActionDef>,
     pub generate: Vec<Generate>,
+    /// Its backend answers `actions`: asked again when these files change
+    pub backend_actions: Option<Vec<String>>,
 }
 
 pub const DEFAULT_PRIORITY: i32 = 50;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct Action {
     /// Stable within a project, e.g. "npm:dev"
     pub id: String,
@@ -210,7 +212,7 @@ pub fn detect(providers: &[Provider], dir: &Path) -> Toolkit {
             add(a, None);
         }
         for g in &p.generate {
-            match items(&g.source, dir) {
+            match items(g, dir) {
                 Ok(items) => items.iter().filter(|i| !g.skip.contains(i)).for_each(|i| add(&g.action, Some(i))),
                 Err(e) => toolkit.problems.push(format!("{}: {e}", p.id)),
             }
@@ -298,7 +300,8 @@ fn package_manager(dir: &Path) -> &'static str {
 }
 
 /// The items of a [[generate]]; none when its file isn't there.
-fn items(source: &Source, dir: &Path) -> Result<Vec<String>, String> {
+fn items(g: &Generate, dir: &Path) -> Result<Vec<String>, String> {
+    let source = &g.source;
     if let Some(file) = &source.json {
         let at = source.keys.as_deref().or(source.values.as_deref()).unwrap_or_default();
         let value = super::detect::json_at(dir, file, at);
@@ -315,7 +318,36 @@ fn items(source: &Source, dir: &Path) -> Result<Vec<String>, String> {
         let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
         return Ok(text.lines().filter_map(|l| Some(re.captures(l)?.get(1)?.as_str().to_string())).collect());
     }
-    Err("command sources aren't supported yet, so its generated actions are left out".into())
+    let command = source.command.as_deref().unwrap_or_default();
+    command_items(dir, command, source.split.as_deref(), &g.watch)
+}
+
+/// When a file was last changed (None: it isn't there)
+fn changed_at(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// A command's output as items: run in the project with a 2-second limit, and kept until one
+/// of the `watch` files changes (a minute when there are none)
+fn command_items(dir: &Path, command: &str, split: Option<&str>, watch: &[String]) -> Result<Vec<String>, String> {
+    type Stamp = Vec<Option<std::time::SystemTime>>;
+    static CACHE: OnceLock<std::sync::Mutex<HashMap<(std::path::PathBuf, String), (Stamp, std::time::Instant, Vec<String>)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (dir.to_path_buf(), command.to_string());
+    let stamp: Stamp = watch.iter().map(|f| changed_at(&dir.join(f))).collect();
+    if let Some((s, at, items)) = cache.lock().unwrap().get(&key) {
+        let fresh = if watch.is_empty() { at.elapsed() < std::time::Duration::from_secs(60) } else { *s == stamp };
+        if fresh {
+            return Ok(items.clone());
+        }
+    }
+    let out = crate::plugins::api::shell_output(dir, command, 2000)?;
+    let items: Vec<String> = match split {
+        Some(sep) => out.split(sep).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+        None => out.lines().map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+    };
+    cache.lock().unwrap().insert(key, (stamp, std::time::Instant::now(), items.clone()));
+    Ok(items)
 }
 
 #[cfg(test)]
@@ -354,6 +386,7 @@ pub mod tests {
                     vars: t.vars,
                     actions: t.actions,
                     generate: t.generate,
+                    backend_actions: None,
                 }
             })
             .collect()
@@ -458,19 +491,39 @@ action = { name = "v-{item}", command = "v {item}" }
 [[generate]]
 source = { file = "Makefile", regex = "^([a-z]+):" }
 action = { name = "{item}", command = "make {item}" }
-[[generate]]
-source = { command = "just --summary" }
-action = { name = "{item}", command = "just {item}" }
 "#)]);
         let d = TempDir::new("generate");
         let t = detect(&p, &d.0);
         assert!(t.actions.is_empty(), "no files, no items");
-        assert!(t.problems[0].contains("command sources"));
+        assert!(t.problems.is_empty());
         d.file("p.json", r#"{"scripts": {"dev": "x", "prepare": "y"}, "list": ["a", 1]}"#);
         d.file("Makefile", "build:\n\tcc\ndev: build\nbuild:\n");
         let t = detect(&p, &d.0);
         assert_eq!(labels(&t), ["g:dev", "g:v-a", "g:build"], "skip, strings only, first of duplicates wins");
         assert_eq!(t.actions[0].command, "run dev");
+    }
+
+    #[test]
+    fn command_sources_are_run_and_kept_until_a_watched_file_changes() {
+        let d = TempDir::new("generate-command");
+        d.file("tasks.txt", "build test");
+        let p = providers(&[("j", r#"
+[[generate]]
+source = { command = "cat tasks.txt; echo ran >> runs.log", split = " " }
+watch = ["tasks.txt"]
+action = { name = "{item}", command = "just {item}" }
+[[generate]]
+source = { command = "exit 3" }
+action = { name = "{item}", command = "x" }
+"#)]);
+        let t = detect(&p, &d.0);
+        assert_eq!(labels(&t), ["j:build", "j:test"]);
+        assert!(t.problems[0].contains("failed (exit 3)"), "{:?}", t.problems);
+        detect(&p, &d.0);
+        assert_eq!(std::fs::read_to_string(d.0.join("runs.log")).unwrap().lines().count(), 1, "kept, not run again");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        d.file("tasks.txt", "lint");
+        assert_eq!(labels(&detect(&p, &d.0)), ["j:lint"], "the watched file changed");
     }
 
     #[test]

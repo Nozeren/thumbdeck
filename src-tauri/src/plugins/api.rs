@@ -199,6 +199,27 @@ struct ExecArgs {
 /// Run a command and capture what it prints. A string runs through the shell (with your login
 /// shell's environment, like Toolkit buttons); a list runs the program directly.
 fn exec(c: &Caller, a: ExecArgs) -> Result<Value, String> {
+    let cwd = match &a.cwd {
+        Some(d) => c.path(d)?,
+        None => c.cwd()?,
+    };
+    exec_in(&cwd, a)
+}
+
+/// A shell command's output (for generated Toolkit buttons); an error when it fails
+pub fn shell_output(cwd: &Path, command: &str, timeout_ms: u64) -> Result<String, String> {
+    let a = ExecArgs { command: Value::from(command), cwd: None, env: Map::new(), input: None, timeout: Some(timeout_ms) };
+    let r = exec_in(cwd, a)?;
+    match r["code"].as_i64() {
+        Some(0) => Ok(r["stdout"].as_str().unwrap_or_default().to_string()),
+        code => {
+            let err = r["stderr"].as_str().unwrap_or_default().lines().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
+            Err(format!("`{command}` failed (exit {}){}", code.unwrap_or(-1), if err.is_empty() { String::new() } else { format!(": {err}") }))
+        }
+    }
+}
+
+fn exec_in(cwd: &Path, a: ExecArgs) -> Result<Value, String> {
     let mut cmd = match &a.command {
         Value::String(s) => {
             let mut cmd = Command::new("/bin/sh");
@@ -213,15 +234,11 @@ fn exec(c: &Caller, a: ExecArgs) -> Result<Value, String> {
         }
         _ => return Err("command is text, or a list of words".into()),
     };
-    let cwd = match &a.cwd {
-        Some(d) => c.path(d)?,
-        None => c.cwd()?,
-    };
     let shown = match &a.command {
         Value::String(s) => s.clone(),
         v => v.as_array().map(|l| l.iter().filter_map(|w| w.as_str()).collect::<Vec<_>>().join(" ")).unwrap_or_default(),
     };
-    cmd.current_dir(&cwd)
+    cmd.current_dir(cwd)
         .env_clear()
         .envs(crate::runner::shell_env().iter().cloned())
         .envs(a.env.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))))

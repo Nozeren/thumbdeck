@@ -83,8 +83,8 @@ export interface Host {
   stopRun(id: number): void;
   /** A run's label and project, for the `run` event */
   run(id: number): { label: string; projectPath: string } | null;
-  /** The Toolkit may have new buttons */
-  refreshToolkit(): void;
+  /** The plugin's Toolkit buttons may have changed (its backend is asked again) */
+  refreshToolkit(plugin: string): void;
   /** A tab's badge next to its title (null: none) */
   badge(key: string, value: string | null): void;
 }

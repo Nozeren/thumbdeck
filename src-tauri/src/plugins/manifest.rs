@@ -462,11 +462,13 @@ impl Manifest {
         self.keys.iter().filter(|(_, m)| m.surface == surface).cloned().collect()
     }
 
-    /// What it brings to the Toolkit (None when it brings nothing: no detect, actions or icon)
-    pub fn provider(&self) -> Option<Provider> {
+    /// What it brings to the Toolkit (None when it brings nothing: no detect, actions or icon).
+    /// An .svg icon becomes its full path.
+    pub fn provider(&self, folder: &Path) -> Option<Provider> {
         let d = self.detect.as_ref();
-        let icon = d.and_then(|d| d.icon.clone());
-        if self.actions.is_empty() && self.generate.is_empty() && icon.is_none() && d.is_none_or(|d| d.requires.is_empty()) {
+        let icon = d.and_then(|d| d.icon.clone()).map(|i| if i.ends_with(".svg") { folder.join(i).to_string_lossy().to_string() } else { i });
+        let backend_actions = self.backend.as_ref().filter(|b| b.actions).map(|b| b.watch.clone());
+        if self.actions.is_empty() && self.generate.is_empty() && icon.is_none() && d.is_none_or(|d| d.requires.is_empty()) && backend_actions.is_none() {
             return None;
         }
         Some(Provider {
@@ -479,6 +481,7 @@ impl Manifest {
             vars: self.vars.clone(),
             actions: self.actions.clone(),
             generate: self.generate.clone(),
+            backend_actions,
         })
     }
 
@@ -606,7 +609,7 @@ mod tests {
         let d = TempDir::new("manifest-min");
         let m = parse(MINIMAL, &d.0).unwrap();
         assert_eq!((m.id.as_str(), m.version.as_str(), m.api), ("hello", "1.0.0", 1));
-        assert!(m.provider().is_none(), "adds nothing to the Toolkit");
+        assert!(m.provider(&d.0).is_none(), "adds nothing to the Toolkit");
         assert!(m.adds().is_empty());
     }
 
@@ -628,7 +631,7 @@ command = "{manage} migrate"
 source = { json = "package.json", keys = "scripts" }
 action = { name = "{item}", command = "npm run {item}" }
 "#), &d.0).unwrap();
-        let p = m.provider().unwrap();
+        let p = m.provider(&d.0).unwrap();
         assert_eq!((p.priority, p.requires.as_slice(), p.icon.as_deref()), (10, &["python".to_string()][..], Some("django")));
         assert_eq!(m.adds(), ["1 Toolkit button, and more from the project's files", "an icon for the projects it's about"]);
     }

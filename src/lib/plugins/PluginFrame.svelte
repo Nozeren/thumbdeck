@@ -168,8 +168,9 @@
       case "keys.release": return onRelease();
       case "fs.watch": return watch(p.path);
       case "fs.unwatch": clearInterval(watches.get(p.id)); watches.delete(p.id); return;
-      case "actions.refresh": return host.refreshToolkit();
-      case "backend.call": throw new Error("backends aren't in this thumbdeck yet");
+      case "actions.refresh": return host.refreshToolkit(info.plugin);
+      case "backend.call":
+        return invoke("plugin_backend_call", { plugin: info.plugin, project: project?.path ?? null, method: p.method, params: p.params ?? null });
       default: throw new Error(`there's no ${method} in the plugin API`);
     }
   }
@@ -237,7 +238,11 @@
       const r = host.run(id);
       if (r && project && r.projectPath === project.path) event("run", { id, label: r.label, code: code ?? -1 });
     });
+    const backend = listen<{ plugin: string; name: string; data: unknown }>("plugin-backend-event", (e) => {
+      if (e.payload.plugin === info.plugin) event("backend", { name: e.payload.name, data: e.payload.data });
+    });
     return () => {
+      backend.then((f) => f());
       window.removeEventListener("message", onMessage);
       window.removeEventListener("focus", focus);
       window.removeEventListener("blur", blur);

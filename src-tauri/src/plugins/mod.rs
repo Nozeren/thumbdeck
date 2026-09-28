@@ -2,12 +2,15 @@
 //! panels, pages and views. Installed ones are listed in the settings; this reads them.
 
 pub mod api;
+pub mod backend;
 pub mod detect;
 pub mod frame;
 pub mod install;
 pub mod keys;
 pub mod log;
 pub mod manifest;
+#[cfg(test)]
+mod official;
 pub mod toolkit;
 
 use install::Installed;
@@ -56,7 +59,7 @@ fn read(installed: &Installed, plugins_dir: &Path) -> Plugin {
 
 /// What the working plugins bring to the Toolkit (requirements not resolved yet)
 pub fn providers(plugins: &[Plugin]) -> Vec<toolkit::Provider> {
-    plugins.iter().filter(|p| p.works()).filter_map(|p| p.manifest.as_ref()?.provider()).collect()
+    plugins.iter().filter(|p| p.works()).filter_map(|p| p.manifest.as_ref()?.provider(&p.folder)).collect()
 }
 
 /// A working plugin by id
@@ -140,6 +143,33 @@ pub fn addable_tabs(plugins: &[Plugin], project: &Path) -> Vec<Addable> {
                 id: format!("plugin:{}:{}", m.id, t.id),
                 name: t.name.clone(),
                 description: if t.description.is_empty() { m.description.clone() } else { t.description.clone() },
+            })
+        })
+        .collect()
+}
+
+/// A backend's answer to `actions` as Toolkit buttons: `[{ name, command, description?,
+/// confirm?, tmux? }]` (tmux: true or a window name)
+pub fn backend_actions(plugin: &str, name: &str, answer: &Value) -> Result<Vec<toolkit::Action>, String> {
+    let list = answer.as_array().ok_or("its answer to actions isn't a list")?;
+    list.iter()
+        .map(|a| {
+            let label = a["name"].as_str().filter(|n| !n.trim().is_empty()).ok_or("an action without a name")?.to_string();
+            let command = a["command"].as_str().ok_or_else(|| format!("action {label} has no command"))?.to_string();
+            let tmux = match &a["tmux"] {
+                Value::Bool(true) => Some(label.clone()),
+                Value::String(w) if !w.is_empty() => Some(w.clone()),
+                _ => None,
+            };
+            Ok(toolkit::Action {
+                id: format!("{plugin}:{label}"),
+                command,
+                source: plugin.to_string(),
+                group: name.to_string(),
+                description: a["description"].as_str().map(String::from),
+                confirm: a["confirm"].as_bool().unwrap_or(false),
+                tmux,
+                label,
             })
         })
         .collect()
@@ -250,6 +280,21 @@ mod tests {
         let info = info(&read(&i, Path::new("/unused")), &HashMap::new());
         assert_eq!(info.settings, serde_json::json!({ "n": 3 }));
         assert_eq!(info.readme.as_deref(), Some("# P"));
+    }
+
+    #[test]
+    fn a_backends_actions() {
+        let answer = serde_json::json!([
+            { "name": "test", "command": "just test" },
+            { "name": "serve", "command": "just serve", "tmux": true, "confirm": true, "description": "Serve" },
+            { "name": "repl", "command": "just repl", "tmux": "shell" },
+        ]);
+        let list = backend_actions("tasks", "Tasks", &answer).unwrap();
+        let short: Vec<_> = list.iter().map(|a| (a.id.as_str(), a.tmux.as_deref(), a.confirm)).collect();
+        assert_eq!(short, [("tasks:test", None, false), ("tasks:serve", Some("serve"), true), ("tasks:repl", Some("shell"), false)]);
+        assert_eq!(list[0].group, "Tasks");
+        assert!(backend_actions("t", "T", &serde_json::json!({})).is_err());
+        assert!(backend_actions("t", "T", &serde_json::json!([{ "command": "x" }])).unwrap_err().contains("without a name"));
     }
 
     #[test]

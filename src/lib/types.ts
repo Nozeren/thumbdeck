@@ -5,8 +5,10 @@ export interface Project {
   dirty: boolean;
   /** Scan folder it was found in; null when added by hand */
   root: string | null;
-  /** django, android, tauri, node, rust, go, nvim, python or folder */
+  /** django, android, tauri, node, rust, go, nvim, python or folder; "plugin": see icon */
   kind: string;
+  /** A plugin's .svg icon for it (a data URL) */
+  icon: string | null;
   hidden: boolean;
   pinned: boolean;
 }

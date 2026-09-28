@@ -15,8 +15,10 @@ pub struct Project {
     /// Scan folder it was found in; None when added by hand
     pub root: Option<String>,
     /// What kind of project it looks like (for its icon): django, android, tauri, node, rust,
-    /// go, nvim, python or folder
+    /// go, nvim, python or folder; "plugin" when a plugin draws its icon
     pub kind: String,
+    /// A plugin's .svg icon for it, as a data URL
+    pub icon: Option<String>,
     pub hidden: bool,
     pub pinned: bool,
 }
@@ -35,15 +37,25 @@ fn kind(dir: &Path, providers: &[Provider]) -> String {
     }
 }
 
+/// A plugin's .svg icon as a data URL
+fn svg(file: &str) -> Option<String> {
+    use base64::Engine;
+    let bytes = std::fs::read(file).ok().filter(|b| b.len() < 256 * 1024)?;
+    Some(format!("data:image/svg+xml;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
 pub fn info(path: &Path, root: Option<String>, hidden: bool, pinned: bool, providers: &[Provider]) -> Project {
     let git_repo = path.join(".git").exists();
+    let kind = kind(path, providers);
+    let (kind, icon) = if kind.ends_with(".svg") { ("plugin".to_string(), svg(&kind)) } else { (kind, None) };
     Project {
         name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
         path: path.to_string_lossy().to_string(),
         branch: git_repo.then(|| git(path, &["rev-parse", "--abbrev-ref", "HEAD"])).flatten(),
         dirty: git_repo && git(path, &["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
         root,
-        kind: kind(path, providers),
+        kind,
+        icon,
         hidden,
         pinned,
     }

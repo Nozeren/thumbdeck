@@ -5,9 +5,10 @@ first when you're back.
 
 ## Where it stands
 
-Steps 1 and 2 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
-frames with the whole page API, and Git is a plugin (the built-in Git tab is gone). Step 3 (the
-backend, and the packs as plugins) is next.
+Steps 1 to 3 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
+frames with the whole page API, plugins can have a backend, and Git and the old packs (Django,
+Python, npm, …) are plugins; the pack code is gone. Step 4 (Logs, Agents and Pull requests as
+plugins) is next.
 
 ## How I work
 
@@ -149,6 +150,19 @@ while testing, and the first-run catalog is read from the local checkout
     each other's; the marks from the built-in Git tab aren't carried over.
 17. **Old built-in tabs that are plugins now** show a short note with a Remove button, instead
     of disappearing silently.
+18. **The official plugins are tested by thumbdeck's Rust tests** (`plugins/official.rs`, reading
+    the submodule): the tests that checked the bundled packs now check that the plugins give
+    the same buttons and icons.
+19. **Your own packs folder (`~/.config/thumbdeck/toolkits`) isn't read any more**: a pack
+    becomes a plugin by adding `id`, `version` and `api` (and moving `icon`, `priority`,
+    `requires` under `[detect]`); link its folder in Settings.
+20. **A backend's Toolkit buttons are asked for in the background**: the Toolkit shows at once
+    and they join when the backend answers (a first start reads your shell's environment and
+    starts node, a few seconds).
+21. **`[backend] install` runs for installed plugins, not linked folders** (a folder you're
+    working in is yours to `npm install`).
+22. **A command source without `watch` is kept for a minute.**
+23. **A backend's `ui.badge` goes on all the plugin's tabs** (a backend isn't tied to one).
 
 ## Log
 
@@ -185,3 +199,25 @@ while testing, and the first-run catalog is read from the local checkout
   page loading its diff from the plugin; a turned-off plugin's tab shows why, with Remove.
 - Not in yet (later steps): `setup_page`, `ui.openPage` / `close` / `status` / `mood`, the
   backend.
+
+### Step 3: the backend, and the packs as plugins
+
+- `plugins/backend.rs`: started on first use, JSON lines, `initialize` / `actions` / `shutdown`,
+  its requests (events, `ui.*`, storage, `actions.refresh`), stderr and stray prints to the log,
+  restarts (not after three crashes in a minute), stopped on turn-off / update / remove and on
+  quit. Frames call it with `td.backend.call`; its events reach them.
+- Toolkit buttons from backends (in the background, cached until a watched file changes or a
+  refresh); `[[generate]]` command sources work now (2 seconds, cached).
+- `[backend] install` after installing and updating.
+- The packs are plugins (`plugins/cargo`, `compose`, `django`, `go`, `gradle`, `make`, `npm`,
+  `python`, each with a README); `packs/`, `packs.rs`, the bundling in `build.rs`,
+  `update_packs` and **+ › Update toolkit packs** are gone. Plugins can give projects an `.svg`
+  icon.
+- Plugins repo: `packages/backend` (`@thumbdeck/backend`, with a test talking to a real
+  backend), `examples/tasks` (a backend's buttons, a page calling it, events).
+- Tested: `cargo test` (112, the backend with sh scripts: calls, errors, timeouts, its own
+  requests, crashes), the helper's test, `npm test`, `svelte-check`. In the dev app: the
+  Django and Python plugins give the old buttons and icon; the Tasks example's backend
+  buttons show (without holding up the Toolkit), its tab lists them through the backend, a
+  task run from the tab streams its output there and shows in Running, the backend's event
+  arrives; closing the app stops the backend.
