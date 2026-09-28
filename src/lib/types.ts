@@ -64,14 +64,21 @@ export interface Extension {
   description: string;
 }
 
-/** An extension turned on for a project, with its setup */
+/** An extension (or a plugin's tab) turned on for a project, with its setup */
 export interface Tab {
+  /** A built-in extension's id, or the plugin's tab id */
   extension: string;
+  /** The plugin the tab is from; absent for a built-in extension */
+  plugin?: string;
   setup: any; // the extension's own (e.g. the Logs tab's Setup)
 }
 
 export interface TabInfo extends Tab {
   title: string;
+  /** A plugin's tab: its frame */
+  frame?: import("./plugins/types.ts").FrameInfo;
+  /** A plugin's tab that can't show, and why */
+  missing?: string;
 }
 
 export interface Run {

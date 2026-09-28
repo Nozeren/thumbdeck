@@ -1,9 +1,12 @@
 //! Plugins (docs/plugin-spec.md): folders with a plugin.toml that add Toolkit buttons, tabs,
 //! panels, pages and views. Installed ones are listed in the settings; this reads them.
 
+pub mod api;
 pub mod detect;
+pub mod frame;
 pub mod install;
 pub mod keys;
+pub mod log;
 pub mod manifest;
 pub mod toolkit;
 
@@ -54,6 +57,92 @@ fn read(installed: &Installed, plugins_dir: &Path) -> Plugin {
 /// What the working plugins bring to the Toolkit (requirements not resolved yet)
 pub fn providers(plugins: &[Plugin]) -> Vec<toolkit::Provider> {
     plugins.iter().filter(|p| p.works()).filter_map(|p| p.manifest.as_ref()?.provider()).collect()
+}
+
+/// A working plugin by id
+pub fn find<'a>(plugins: &'a [Plugin], id: &str) -> Option<(&'a Plugin, &'a Manifest)> {
+    plugins.iter().filter(|p| p.works()).find(|p| p.installed.id == id).and_then(|p| Some((p, p.manifest.as_ref()?)))
+}
+
+/// Whether a plugin's project features (tabs, project panels) apply to a project
+pub fn applies(m: &Manifest, project: &Path) -> bool {
+    m.detect.as_ref().is_none_or(|d| d.conditions.matches(project))
+}
+
+/// What a frame needs from its plugin: where its files are, its page and keys
+#[derive(Serialize, Clone)]
+pub struct FrameInfo {
+    pub plugin: String,
+    pub version: String,
+    pub folder: String,
+    pub data_folder: String,
+    /// The plugin's name, and the surface's (a tab's default title)
+    pub plugin_name: String,
+    pub name: String,
+    /// The HTML file, relative to the plugin's folder
+    pub page: String,
+    /// Its keymaps, the starting one first
+    pub keymaps: Vec<(String, keys::Keymap)>,
+    /// A tab's setup form (fields), or its own setup page
+    pub fields: Vec<Field>,
+    pub setup_page: Option<String>,
+}
+
+/// A plugin tab's frame info, with its setup completed; Err: why it can't show
+pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> Result<(FrameInfo, Value), String> {
+    let (p, m) = find(plugins, plugin).ok_or_else(|| {
+        let found = plugins.iter().find(|p| p.installed.id == plugin);
+        let name = found.and_then(|p| p.manifest.as_ref()).map(|m| m.name.as_str()).unwrap_or(plugin);
+        match found {
+            Some(p) if !p.installed.enabled => format!("The {name} plugin is turned off (Settings › Plugins)."),
+            Some(_) => format!("The {name} plugin has problems, so it isn't loaded (Settings › Plugins)."),
+            None => format!("The {name} plugin isn't installed (Settings › Plugins › Add a plugin)."),
+        }
+    })?;
+    let t = m.tabs.iter().find(|t| t.id == tab).ok_or_else(|| format!("{} no longer has a tab called {tab}.", m.name))?;
+    let mut setup = manifest::complete(&t.setup, saved);
+    if setup.get("title").and_then(|v| v.as_str()).is_none_or(|t| t.trim().is_empty()) {
+        setup["title"] = Value::from(t.name.clone());
+    }
+    let info = FrameInfo {
+        plugin: plugin.to_string(),
+        version: m.version.clone(),
+        folder: p.folder.to_string_lossy().to_string(),
+        data_folder: api::data_folder(plugin).map(|d| d.to_string_lossy().to_string()).unwrap_or_default(),
+        plugin_name: m.name.clone(),
+        name: t.name.clone(),
+        page: t.page.clone(),
+        keymaps: m.keymaps(&format!("tab:{tab}")),
+        fields: t.setup.clone(),
+        setup_page: t.setup_page.clone(),
+    };
+    Ok((info, setup))
+}
+
+/// A tab that can be added to a project: a built-in extension ("logs") or a plugin's tab
+/// ("plugin:<plugin>:<tab>")
+#[derive(Serialize)]
+pub struct Addable {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+/// The plugin tabs a project can have (from working plugins that apply to it)
+pub fn addable_tabs(plugins: &[Plugin], project: &Path) -> Vec<Addable> {
+    plugins
+        .iter()
+        .filter(|p| p.works())
+        .filter_map(|p| p.manifest.as_ref())
+        .filter(|m| applies(m, project))
+        .flat_map(|m| {
+            m.tabs.iter().map(|t| Addable {
+                id: format!("plugin:{}:{}", m.id, t.id),
+                name: t.name.clone(),
+                description: if t.description.is_empty() { m.description.clone() } else { t.description.clone() },
+            })
+        })
+        .collect()
 }
 
 /// A plugin as Settings › Plugins shows it

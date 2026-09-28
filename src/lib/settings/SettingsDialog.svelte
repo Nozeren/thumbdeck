@@ -27,6 +27,13 @@
   let source = $state("");
   let values = $state<Record<string, any>>({});
   let readmeEl = $state<HTMLElement | null>(null);
+  // The shown plugin's log: its pages' console and errors
+  let log = $state<{ at: number; level: string; text: string }[]>([]);
+  let logOpen = $state(false);
+
+  async function loadLog(id: string) {
+    log = await invoke("plugin_log_lines", { plugin: id });
+  }
 
   const plugin = $derived(plugins.find((p) => p.id === shown) ?? null);
   const changed = $derived(!!plugin && JSON.stringify(values) !== JSON.stringify(plugin.settings));
@@ -36,6 +43,8 @@
     error = "";
     const p = plugins.find((x) => x.id === id);
     values = p ? structuredClone($state.snapshot(p.settings)) : {};
+    log = [];
+    if (p) loadLog(id);
   }
 
   // Runs a change, then shows the new list
@@ -202,6 +211,25 @@
             </form>
           {/if}
 
+          <div class="log">
+            <button class="fold" onclick={() => (logOpen = !logOpen)}>
+              <span class="caret">{logOpen ? "▾" : "▸"}</span>Log <span class="n">{log.length || ""}</span>
+              {#if log.some((l) => l.level === "error")}<span class="errs">errors</span>{/if}
+            </button>
+            {#if logOpen}
+              <div class="log-tools">
+                <button class="ghost small" onclick={() => loadLog(plugin.id)}>Refresh</button>
+                <button class="ghost small" onclick={async () => { await invoke("plugin_log_clear", { plugin: plugin.id }); log = []; }}>Clear</button>
+              </div>
+              {#if log.length}
+                <pre class="lines">{#each log as l}<span class={l.level}>{new Date(l.at).toLocaleTimeString()} {l.text}</span>
+{/each}</pre>
+              {:else}
+                <p class="hint">Nothing yet: its pages' console output and errors show here.</p>
+              {/if}
+            {/if}
+          </div>
+
           {#if plugin.readme}
             <article class="readme" bind:this={readmeEl}>{@html marked.parse(plugin.readme)}</article>
           {/if}
@@ -257,6 +285,13 @@
   .foot { display: flex; align-items: center; gap: 8px; margin-top: auto; border-top: 1px solid var(--bg2); padding-top: 10px; }
   .foot .hint { font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .danger { color: var(--red); }
+  .log { border-top: 1px solid var(--bg2); padding-top: 6px; }
+  .log .fold { padding-left: 0; }
+  .log .n { color: var(--grey); font-weight: 400; }
+  .errs { color: var(--red); font-weight: 400; }
+  .log-tools { display: flex; gap: 6px; margin: 4px 0; }
+  .lines { max-height: 220px; overflow: auto; margin: 0; padding: 8px 10px; background: var(--bg-dim); border-radius: 8px; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .lines .error { color: var(--red); } .lines .warn { color: var(--yellow); } .lines .debug { color: var(--grey); }
   .busy { margin: 0; color: var(--orange); font: 12px var(--mono); }
   .problem { color: var(--red); margin: 0; }
   .add-form { display: flex; flex-direction: column; gap: 10px; }

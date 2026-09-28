@@ -1,0 +1,11 @@
+/* thumbdeck's colors and fonts (Everforest dark hard). The page uses them, and every plugin
+   frame gets them too (src-tauri/src/plugins/frame.rs), so plugins keep fitting in. */
+:root {
+  --bg-dim: #1e2326; --bg0: #272e33; --bg1: #2e383c; --bg2: #374145; --bg3: #414b50;
+  --fg: #d3c6aa; --grey: #859289; --grey-dim: #7a8478;
+  --red: #e67e80; --orange: #e69875; --yellow: #dbbc7f; --green: #a7c080;
+  --aqua: #83c092; --blue: #7fbbb3; --purple: #d699b6;
+  --mono: "Iosevka Nerd Font", "JetBrains Mono", ui-monospace, monospace;
+  --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}

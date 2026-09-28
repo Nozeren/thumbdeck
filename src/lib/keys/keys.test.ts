@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { actionFor, conflicts, keyName, ruleBreaks } from "./keys.ts";
-import { ALL, GIT, REVIEW } from "./maps.ts";
+import { ALL, REVIEW, REVIEW_FILES } from "./maps.ts";
 
 const press = (key: string, mods: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
 
@@ -23,8 +23,8 @@ test("key names", () => {
 });
 
 test("looking keys up", () => {
-  assert.equal(actionFor(GIT, press("v")), "review");
-  assert.equal(actionFor(GIT, press("Tab", { shiftKey: true })), "previous-list");
-  assert.equal(actionFor(GIT, press("d", { ctrlKey: true })), null, "Ctrl+d isn't d");
+  assert.equal(actionFor(REVIEW, press("n")), "change");
+  assert.equal(actionFor(REVIEW_FILES, press("Escape")), "leave");
+  assert.equal(actionFor(REVIEW, press("d", { ctrlKey: true })), null, "Ctrl+d isn't d");
   assert.equal(actionFor(REVIEW, press("Escape")), "leave");
 });

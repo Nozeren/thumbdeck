@@ -10,8 +10,6 @@ import AgentsTab from "./agents/AgentsTab.svelte";
 import AgentsSetup from "./agents/SetupForm.svelte";
 import PrTab from "./prs/PrTab.svelte";
 import PrsSetup from "./prs/SetupForm.svelte";
-import GitTab from "./git/GitTab.svelte";
-import GitSetup from "./git/SetupForm.svelte";
 
 /** What every tab component is given */
 export interface TabProps {
@@ -64,5 +62,4 @@ export const extensions: Record<string, ExtensionUi> = {
   logs: { tab: LogViewer, setup: LogsSetup },
   agents: { tab: AgentsTab, setup: AgentsSetup },
   prs: { tab: PrTab, setup: PrsSetup },
-  git: { tab: GitTab, setup: GitSetup },
 };

@@ -4,7 +4,6 @@
 //! listed in AVAILABLE and in src/lib/extensions/index.ts.
 
 pub mod agents;
-pub mod git;
 pub mod logs;
 pub mod prs;
 
@@ -43,12 +42,6 @@ pub const AVAILABLE: &[Extension] = &[
         description: "The repo's open PRs that concern you: to review again, to review, reviewed, yours",
         setup: complete_setup::<prs::Setup>,
     },
-    Extension {
-        id: "git",
-        name: "Git",
-        description: "The repo at a glance: changes and their diffs, the branch, commits, branches and stashes (read-only)",
-        setup: complete_setup::<git::Setup>,
-    },
 ];
 
 /// An extension's setup type turns saved JSON into a complete setup (its serde defaults fill
@@ -62,10 +55,14 @@ fn find(id: &str) -> Option<&'static Extension> {
     AVAILABLE.iter().find(|e| e.id == id)
 }
 
-/// An extension turned on for a project
+/// An extension (or a plugin's tab) turned on for a project
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Tab {
+    /// A built-in extension's id, or the plugin's tab id
     pub extension: String,
+    /// The plugin the tab is from; None for a built-in extension
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
     /// The extension's own setup
     pub setup: Value,
 }
@@ -74,14 +71,14 @@ impl Tab {
     /// A new tab with the extension's default setup
     pub fn new(extension: &str) -> Option<Tab> {
         let setup = (find(extension)?.setup)(&Value::Null)?;
-        Some(Tab { extension: extension.into(), setup })
+        Some(Tab { extension: extension.into(), plugin: None, setup })
     }
 
     /// The setup with every field filled in (a setup saved by an older thumbdeck may lack new
     /// ones; the tab relies on all of them)
     pub fn complete(&self) -> Tab {
         let setup = find(&self.extension).and_then(|e| (e.setup)(&self.setup));
-        Tab { extension: self.extension.clone(), setup: setup.unwrap_or_else(|| self.setup.clone()) }
+        Tab { extension: self.extension.clone(), plugin: None, setup: setup.unwrap_or_else(|| self.setup.clone()) }
     }
 
     /// The tab's title, from its setup
@@ -107,14 +104,14 @@ mod tests {
 
     #[test]
     fn an_unknown_extension_keeps_its_setup_as_saved() {
-        let tab = Tab { extension: "gone".into(), setup: serde_json::json!({ "x": 1 }) };
+        let tab = Tab { extension: "gone".into(), plugin: None, setup: serde_json::json!({ "x": 1 }) };
         assert_eq!(tab.complete(), tab, "e.g. a tab saved by a newer thumbdeck");
         assert_eq!(tab.title(), "gone");
     }
 
     #[test]
     fn a_partial_setup_is_completed_with_defaults() {
-        let tab = Tab { extension: "logs".into(), setup: serde_json::json!({ "folders": ["out"] }) };
+        let tab = Tab { extension: "logs".into(), plugin: None, setup: serde_json::json!({ "folders": ["out"] }) };
         let full = tab.complete();
         assert_eq!(full.setup["folders"], serde_json::json!(["out"]));
         assert_eq!(full.setup["pattern"], "*.log");

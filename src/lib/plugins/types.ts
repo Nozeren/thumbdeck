@@ -40,3 +40,51 @@ export interface PluginInfo {
   /** Its settings, every field filled in */
   settings: Record<string, unknown>;
 }
+
+/** A key binding in a plugin's manifest */
+export interface PluginBinding {
+  keys: string[];
+  action: string;
+  does: string;
+}
+
+/** A `[keys.<name>]` keymap in a plugin's manifest */
+export interface PluginKeymap {
+  name: string;
+  surface: string;
+  bindings: PluginBinding[];
+}
+
+/** What a frame needs from its plugin (src-tauri/src/plugins/mod.rs FrameInfo) */
+export interface FrameInfo {
+  plugin: string;
+  version: string;
+  folder: string;
+  data_folder: string;
+  plugin_name: string;
+  /** The surface's name (a tab's default title) */
+  name: string;
+  /** Its HTML file, relative to the plugin's folder */
+  page: string;
+  /** [name, keymap], the starting one first */
+  keymaps: [string, PluginKeymap][];
+  /** A tab's setup form */
+  fields: Field[];
+  setup_page: string | null;
+}
+
+/** What a frame can ask of the page (the page's side of the API) */
+export interface Host {
+  /** The projects in the list, and the selected one */
+  projects(): { path: string; name: string; branch: string | null }[];
+  selected(): { path: string; name: string; branch: string | null } | null;
+  /** Start a command like a Toolkit button (a tab with its output, in Running); its run id */
+  startRun(project: { path: string; name: string }, command: string, label: string, source: string): Promise<number>;
+  stopRun(id: number): void;
+  /** A run's label and project, for the `run` event */
+  run(id: number): { label: string; projectPath: string } | null;
+  /** The Toolkit may have new buttons */
+  refreshToolkit(): void;
+  /** A tab's badge next to its title (null: none) */
+  badge(key: string, value: string | null): void;
+}

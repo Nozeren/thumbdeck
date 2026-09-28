@@ -1,3 +1,4 @@
+mod branch;
 mod extensions;
 mod packs;
 mod plugins;
@@ -33,6 +34,28 @@ struct TabInfo {
     title: String,
     #[serde(flatten)]
     tab: extensions::Tab,
+    /// A plugin's tab: its frame
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame: Option<plugins::FrameInfo>,
+    /// A plugin's tab that can't show, and why
+    #[serde(skip_serializing_if = "Option::is_none")]
+    missing: Option<String>,
+}
+
+fn tab_info(t: &extensions::Tab, loaded: &[plugins::Plugin]) -> TabInfo {
+    let Some(plugin) = &t.plugin else {
+        return TabInfo { title: t.title(), tab: t.complete(), frame: None, missing: None };
+    };
+    match plugins::tab_frame(loaded, plugin, &t.extension, &t.setup) {
+        Ok((frame, setup)) => {
+            let title = setup["title"].as_str().unwrap_or(&frame.name).to_string();
+            TabInfo { title, tab: extensions::Tab { setup, ..t.clone() }, frame: Some(frame), missing: None }
+        }
+        Err(why) => {
+            let title = t.setup.get("title").and_then(|v| v.as_str()).unwrap_or(&t.extension).to_string();
+            TabInfo { title, tab: t.clone(), frame: None, missing: Some(why) }
+        }
+    }
 }
 
 fn details(app: &AppHandle, path: &str) -> Details {
@@ -58,7 +81,10 @@ fn details(app: &AppHandle, path: &str) -> Details {
         hidden,
         problems,
         readme: projects::readme(Path::new(path)),
-        tabs: s.extensions.get(path).into_iter().flatten().map(|t| TabInfo { title: t.title(), tab: t.complete() }).collect(),
+        tabs: {
+            let loaded = plugins::load(&s.plugins);
+            s.extensions.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect()
+        },
     }
 }
 
@@ -178,15 +204,27 @@ async fn run_in_tmux(path: String, name: String, window: String, command: String
     terminal::run_in_window(&path, &name, &window, &command)
 }
 
+/// The tabs a project can have: the built-in extensions, then the plugins' tabs
 #[tauri::command]
-fn extensions_available() -> &'static [extensions::Extension] {
-    extensions::AVAILABLE
+async fn tabs_available(app: AppHandle, path: String) -> Vec<plugins::Addable> {
+    let builtin = extensions::AVAILABLE.iter().map(|e| plugins::Addable { id: e.id.into(), name: e.name.into(), description: e.description.into() });
+    let loaded = plugins::load(&settings::load(&app).plugins);
+    builtin.chain(plugins::addable_tabs(&loaded, Path::new(&path))).collect()
 }
 
-/// A new tab of an extension, with its default setup (not saved yet)
+/// A new tab, with its default setup (not saved yet): a built-in extension ("logs") or a
+/// plugin's tab ("plugin:<plugin>:<tab>", with its frame info for the setup form)
 #[tauri::command]
-fn new_tab(extension: String) -> Result<extensions::Tab, String> {
-    extensions::Tab::new(&extension).ok_or_else(|| format!("no extension {extension}"))
+async fn new_tab(app: AppHandle, extension: String) -> Result<TabInfo, String> {
+    let loaded = plugins::load(&settings::load(&app).plugins);
+    let tab = match extension.strip_prefix("plugin:").and_then(|r| r.split_once(':')) {
+        Some((plugin, tab)) => {
+            let (_, setup) = plugins::tab_frame(&loaded, plugin, tab, &serde_json::Value::Null)?;
+            extensions::Tab { extension: tab.into(), plugin: Some(plugin.into()), setup }
+        }
+        None => extensions::Tab::new(&extension).ok_or_else(|| format!("no extension {extension}"))?,
+    };
+    Ok(tab_info(&tab, &loaded))
 }
 
 /// Turn an extension on for a project ("add"), save a tab's setup ("save") or turn it off
@@ -258,6 +296,58 @@ async fn plugin_save_settings(app: AppHandle, id: String, settings: serde_json::
         s.plugin_settings.insert(id, settings);
     })?;
     Ok(plugin_infos(&s))
+}
+
+/// A frame's call to the page API (the part that runs here: files, commands, storage,
+/// settings, notifications). The page attaches the frame's plugin and project.
+#[tauri::command]
+async fn plugin_call(app: AppHandle, plugin: String, project: Option<String>, method: String, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    let s = settings::load(&app);
+    let loaded = plugins::load(&s.plugins);
+    let (_, m) = plugins::find(&loaded, &plugin).ok_or_else(|| format!("the plugin {plugin} isn't on"))?;
+    match method.as_str() {
+        "ui.notify" => {
+            use tauri_plugin_notification::NotificationExt;
+            let title = params["title"].as_str().unwrap_or_default();
+            let body = params["body"].as_str().unwrap_or_default();
+            app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())?;
+            Ok(serde_json::Value::Null)
+        }
+        "ui.openUrl" => {
+            use tauri_plugin_opener::OpenerExt;
+            let url = params["url"].as_str().unwrap_or_default();
+            if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
+                return Err(format!("{url} isn't a web address"));
+            }
+            app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())?;
+            Ok(serde_json::Value::Null)
+        }
+        _ => {
+            let settings = plugins::manifest::complete(&m.settings, s.plugin_settings.get(&plugin).unwrap_or(&serde_json::Value::Null));
+            tauri::async_runtime::spawn_blocking(move || {
+                let caller = plugins::api::Caller { plugin: &plugin, project: project.as_deref().map(Path::new), settings };
+                plugins::api::call(&caller, &method, params)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        }
+    }
+}
+
+/// A line for a plugin's log (its page's console)
+#[tauri::command]
+fn plugin_log(logs: State<'_, plugins::log::Logs>, plugin: String, level: String, text: String) {
+    logs.add(&plugin, &level, &text);
+}
+
+#[tauri::command]
+fn plugin_log_lines(logs: State<'_, plugins::log::Logs>, plugin: String) -> Vec<plugins::log::Line> {
+    logs.lines(&plugin)
+}
+
+#[tauri::command]
+fn plugin_log_clear(logs: State<'_, plugins::log::Logs>, plugin: String) {
+    logs.clear(&plugin);
 }
 
 /// Plugins with a newer release: id -> its tag ("the latest commit" for one without tags)
@@ -426,44 +516,12 @@ async fn prs_open(app: AppHandle, url: String, notification: Option<String>) -> 
     Ok(())
 }
 
-// ------------------------------------------------------------ git extension (read-only)
+// ------------------------------------------------------------ the status line
 
-use extensions::git;
-
+/// The project's branch and how many files changed, for the status line
 #[tauri::command]
-async fn git_status(path: String) -> Result<git::Status, String> {
-    git::status(Path::new(&path))
-}
-
-#[tauri::command]
-async fn git_diff(path: String, file: String, staged: bool, untracked: bool) -> Result<String, String> {
-    git::diff(Path::new(&path), &file, staged, untracked)
-}
-
-#[tauri::command]
-async fn git_log(path: String, count: usize) -> Result<Vec<git::Commit>, String> {
-    git::log(Path::new(&path), count)
-}
-
-#[tauri::command]
-async fn git_show(path: String, hash: String) -> Result<String, String> {
-    git::show(Path::new(&path), &hash)
-}
-
-#[tauri::command]
-async fn git_branches(path: String) -> Result<git::Branches, String> {
-    git::branches(Path::new(&path))
-}
-
-/// A whole diff for the review page: "changes", a commit hash, or a stash name
-#[tauri::command]
-async fn git_review(path: String, what: String) -> Result<String, String> {
-    git::review(Path::new(&path), &what)
-}
-
-#[tauri::command]
-async fn git_stash(path: String, name: String) -> Result<String, String> {
-    git::stash(Path::new(&path), &name)
+async fn branch_status(path: String) -> Result<branch::Branch, String> {
+    branch::status(Path::new(&path))
 }
 
 // ------------------------------------------------------------ updates
@@ -517,10 +575,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(runner::Runs::default())
+        .manage(plugins::log::Logs::default())
+        .register_uri_scheme_protocol("plugin", |ctx, request| {
+            let loaded = plugins::load(&settings::load(ctx.app_handle()).plugins);
+            plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
+        })
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, update_packs,
-            extensions_available, new_tab, edit_tab, logs_check, logs_list, logs_open,
+            tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, edit_tab, logs_check, logs_list, logs_open,
             logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
-            git_status, git_diff, git_log, git_show, git_branches, git_stash, git_review, prs_diff,
+            branch_status, prs_diff,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
             watch_for_updates(app.handle().clone());

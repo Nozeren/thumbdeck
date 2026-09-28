@@ -184,21 +184,4 @@ export const PRS: Keymap = {
 };
 
 // ------------------------------------------------------------ Git tab
-export const GIT: Keymap = {
-  name: "GIT",
-  bindings: [
-    ...MOVE,
-    bind(["l", "Enter"], "open", "review: all changes (at this file), the commit, the stash"),
-    bind("v", "review", "review (the same)"),
-    bind("Tab", "next-list", "next list: changes → commits → branches"),
-    bind("Shift+Tab", "previous-list", "previous list"),
-    bind(["d", "PageDown"], "page-down", "scroll the diff down"),
-    bind(["u", "PageUp"], "page-up", "scroll the diff up"),
-    bind("r", "refresh", "refresh"),
-    SETUP,
-    LEAVE,
-    HELP,
-  ],
-};
-
-export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY, AGENTS_LIST, AGENTS_TRANSCRIPT, AGENTS_START, PRS, GIT];
+export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY, AGENTS_LIST, AGENTS_TRANSCRIPT, AGENTS_START, PRS];

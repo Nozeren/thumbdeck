@@ -5,8 +5,9 @@ first when you're back.
 
 ## Where it stands
 
-Step 1 is done (manifests, installing, Settings › Plugins, `thumbdeck plugin check`). Step 2
-(plugin frames and the page API, Git as a plugin) is next.
+Steps 1 and 2 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
+frames with the whole page API, and Git is a plugin (the built-in Git tab is gone). Step 3 (the
+backend, and the packs as plugins) is next.
 
 ## How I work
 
@@ -104,7 +105,8 @@ while testing, and the first-run catalog is read from the local checkout
 ## Needs you
 
 - When you're back: rename `thumbdeck-toolkits` to `thumbdeck-plugins` on GitHub, publish the
-  three npm packages, push both branches. (I won't do any of these.)
+  three npm packages, push both branches: the submodule's `plugins` branch first, since
+  thumbdeck's commits point at its commits. (I won't do any of these.)
 - Confirm: the avatar only reacts to Claude when the Agents plugin is installed (it sends
   `waiting` / `working`).
 
@@ -128,6 +130,25 @@ while testing, and the first-run catalog is read from the local checkout
 8. **The key rules are in Rust too** (`plugins/keys.rs`), for checking manifests; a test fails
    if they differ from `RULES` in `keys.ts`.
 9. **A plugin that adds nothing is still valid** (e.g. while you start writing one).
+10. **A frame's context travels in its address** (`plugin://git/tab.html?td=<base64 JSON>`) and
+    the API script is put inline at the top of the page, so `thumbdeck.context` is there at
+    once, with no request. `plugins/frame.rs`, `src/lib/plugins/frame.ts`.
+11. **Frames don't get thumbdeck's own IPC**: everything goes through `postMessage` to the
+    page, which attaches the plugin and project itself, so a frame can't pretend to be another
+    plugin. `PluginFrame.svelte`.
+12. **`td.run` adds its output tab without switching to it**, so the plugin's page stays in
+    front (a Toolkit button still switches).
+13. **`fs.watch` looks once a second** (a stat) instead of using the system's file watcher:
+    simple, and enough for logs and config files.
+14. **The plugin log came early** (planned for step 5): I needed it to debug the first frame.
+    Pages' console and uncaught errors, in Settings › Plugins › Log, and in the terminal in
+    dev builds.
+15. **The status line's branch check stays in thumbdeck** (`branch.rs`, `branch_status`); the
+    rest of the old Git module went with the built-in Git tab.
+16. **A review's "viewed" marks are kept per plugin** (`plugin:git:…`), so plugins can't mix up
+    each other's; the marks from the built-in Git tab aren't carried over.
+17. **Old built-in tabs that are plugins now** show a short note with a Remove button, instead
+    of disappearing silently.
 
 ## Log
 
@@ -144,3 +165,23 @@ while testing, and the first-run catalog is read from the local checkout
   from a local git repository (latest tag taken), its button showed in the Toolkit, a new tag
   was found on start and the update installed, settings saved, a broken manifest showed its
   problem. `thumbdeck plugin check` on a good and a broken plugin (exit 0 / 1).
+
+### Step 2: the page API, and Git as a plugin
+
+- `plugins/frame.rs` (the `plugin://` scheme, only files inside the plugin; the colors, kit and
+  API put first in each page), `plugins/frame/api.js` (`window.thumbdeck`),
+  `plugins/frame/kit.css`, `plugins/api.rs` (files, exec, storage, settings), `plugins/log.rs`.
+- `src/lib/theme.css`: the colors, shared by the page and the frames.
+- `src/lib/plugins/PluginFrame.svelte` (calls, events, keys, help), `PluginSetupForm.svelte`,
+  `frame.ts`. Plugin tabs in the `+` menu, kept alive once shown, unloaded after 10 minutes
+  hidden; badges on tab titles.
+- Plugins repo (`src-tauri/toolkits`, branch `plugins`): `plugins/git` (the Git tab in plain JS,
+  with `node --test` tests), `examples/todos`, `packages/plugin` (`@thumbdeck/plugin` types).
+- The built-in Git tab is gone (Rust module, Svelte tab, its keymap and commands).
+- Tested: `cargo test` (110), `npm test` (31), `svelte-check`, the Git plugin's tests (6), the
+  types with `tsc --strict`. In the dev app: the TODOs example (exec, setup, badge, keys, `?`
+  help from the manifest, setup form, a setup change reaching the page without a reload), and
+  the Git plugin added from the `+` menu: branch line, changes and diffs, commits, the review
+  page loading its diff from the plugin; a turned-off plugin's tab shows why, with Remove.
+- Not in yet (later steps): `setup_page`, `ui.openPage` / `close` / `status` / `mood`, the
+  backend.

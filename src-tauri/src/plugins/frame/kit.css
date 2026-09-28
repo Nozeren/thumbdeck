@@ -1,0 +1,43 @@
+/* thumbdeck's kit for plugin pages: plain HTML looks like the rest of the app. Every frame
+   gets it unless the page has <meta name="thumbdeck-kit" content="off">. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg0); color: var(--fg); font: 13px/1.5 var(--sans); scrollbar-width: thin; }
+h1, h2, h3, h4 { font-family: var(--mono); margin: 0.6em 0 0.4em; }
+h1 { font-size: 18px; } h2 { font-size: 15px; } h3 { font-size: 13px; } h4 { font-size: 12px; color: var(--grey); }
+a { color: var(--blue); }
+code, pre, kbd { font-family: var(--mono); }
+code { background: var(--bg1); padding: 1px 5px; border-radius: 4px; color: var(--aqua); font-size: 12px; }
+pre { background: var(--bg1); padding: 10px 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+pre code { background: none; padding: 0; color: inherit; }
+button { font: 12.5px var(--mono); color: var(--fg); background: var(--bg1); border: 1px solid var(--bg2);
+         border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+button:hover { border-color: var(--orange); }
+button:disabled { opacity: 0.45; cursor: default; border-color: var(--bg2); }
+button.primary { background: var(--orange); color: var(--bg0); border-color: var(--orange); font-weight: 600; }
+input, select, textarea { font: 13px var(--mono); color: var(--fg); background: var(--bg1); border: 1px solid var(--bg2);
+                          border-radius: 8px; padding: 6px 10px; outline: none; }
+input:focus, select:focus, textarea:focus { border-color: var(--orange); }
+table { border-collapse: collapse; width: 100%; font: 12.5px var(--mono); }
+th { text-align: left; color: var(--grey); font-weight: 500; border-bottom: 1px solid var(--bg2); padding: 4px 8px; }
+td { padding: 3px 8px; border-bottom: 1px solid var(--bg1); }
+hr { border: 0; border-top: 1px solid var(--bg2); }
+
+/* A list you move through with j / k: mark the current item with aria-selected="true" */
+.td-list { list-style: none; margin: 0; padding: 4px 6px; font: 12.5px var(--mono); }
+.td-list > * { padding: 2px 8px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.td-list > [aria-selected="true"] { background: var(--bg2); }
+body.td-keys .td-list > [aria-selected="true"] { box-shadow: inset 2px 0 var(--orange); }
+
+.td-muted { color: var(--grey); }
+.td-badge { display: inline-block; padding: 0 7px; border-radius: 99px; background: var(--bg2); color: var(--fg);
+            font: 11px var(--mono); vertical-align: middle; }
+.td-badge.red { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
+.td-badge.green { color: var(--green); background: color-mix(in srgb, var(--green) 15%, transparent); }
+.td-badge.yellow { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 15%, transparent); }
+.td-badge.blue { color: var(--blue); background: color-mix(in srgb, var(--blue) 15%, transparent); }
+.td-badge.orange { color: var(--orange); background: color-mix(in srgb, var(--orange) 15%, transparent); }
+.td-badge.purple { color: var(--purple); background: color-mix(in srgb, var(--purple) 15%, transparent); }
+.td-empty { color: var(--grey); padding: 16px; }
+.td-error { color: var(--red); }
+.td-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--bg2); white-space: nowrap; }

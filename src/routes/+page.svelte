@@ -1,10 +1,15 @@
 <script lang="ts">
+  import "$lib/theme.css";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { marked } from "marked";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
-  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, Update } from "$lib/types";
+  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
+  import type { Host } from "$lib/plugins/types";
+  import PluginFrame from "$lib/plugins/PluginFrame.svelte";
+  import PluginSetupForm from "$lib/plugins/PluginSetupForm.svelte";
+  import { getVersion } from "@tauri-apps/api/app";
   import { extensions, type TabExports } from "$lib/extensions";
   import Avatar from "$lib/avatar/Avatar.svelte";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
@@ -66,7 +71,71 @@
   let tabMenuEl = $state<HTMLElement | null>(null);
   let centerEl = $state<HTMLElement | null>(null);
   // Setup form for a tab: index null for a new one (saved on Add)
-  let setupForm = $state<{ index: number | null; tab: Tab } | null>(null);
+  let setupForm = $state<{ index: number | null; tab: TabInfo } | null>(null);
+
+  // ------------------------------------------------------------ plugin tabs (frames)
+  // A plugin tab's frame is kept once shown (switching back is instant) and unloaded after
+  // 10 minutes hidden. Its key: project, position, plugin and tab.
+  interface LiveFrame { key: string; project: Project; index: number; tab: TabInfo; lastShown: number }
+  let liveFrames = $state<LiveFrame[]>([]);
+  let frameRefs = $state<Record<string, TabExports | null>>({});
+  let badges = $state<Record<string, string | null>>({});
+  let version = $state("");
+  const frameKeyOf = (path: string, i: number, t: Tab) => `${path}|${i}|${t.plugin}:${t.extension}`;
+  const shownFrameKey = $derived.by(() => {
+    if (!tabShown || !selected || !details || shownTab === null) return null;
+    const t = details.tabs[shownTab];
+    return t?.frame ? frameKeyOf(selected.path, shownTab, t) : null;
+  });
+  // The shown tab's keys: a plugin frame's, or a built-in tab's
+  const activeTab = $derived(shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : tabRef);
+
+  // Start the shown plugin tab's frame, or mark it shown again
+  $effect(() => {
+    const key = shownFrameKey;
+    if (!key || !selected || !details || shownTab === null) return;
+    const [project, index, tab] = [selected, shownTab, details.tabs[shownTab]];
+    untrack(() => {
+      const f = liveFrames.find((x) => x.key === key);
+      if (f) f.lastShown = Date.now();
+      else liveFrames.push({ key, project, index, tab, lastShown: Date.now() });
+    });
+  });
+  // New details for a project: its frames get their tab's new setup, or go with their tab
+  $effect(() => {
+    const d = details;
+    const path = selected?.path;
+    if (!d || !path) return;
+    untrack(() => {
+      liveFrames = liveFrames.filter((f) => {
+        if (f.project.path !== path) return true;
+        const t = d.tabs[f.index];
+        if (!t?.frame || frameKeyOf(path, f.index, t) !== f.key) return false;
+        f.tab = t;
+        return true;
+      });
+    });
+  });
+  function unloadIdleFrames() {
+    const now = Date.now();
+    liveFrames = liveFrames.filter((f) => f.key === shownFrameKey || now - f.lastShown < 10 * 60_000);
+  }
+
+  // What plugin frames can ask of the page
+  const host: Host = {
+    projects: () => projects.filter((p) => !p.hidden).map(({ path, name, branch }) => ({ path, name, branch })),
+    selected: () => (selected ? { path: selected.path, name: selected.name, branch: selected.branch } : null),
+    startRun: (p, command, label, source) => startRun(p, command, label, source, false),
+    stopRun: (id) => void invoke("stop_run", { id }),
+    run: (id) => {
+      const r = runs.find((x) => x.id === id);
+      return r ? { label: r.label, projectPath: r.projectPath } : null;
+    },
+    refreshToolkit: async () => {
+      if (selected) details = await invoke<Details>("project_details", { path: selected.path });
+    },
+    badge: (key, value) => (badges[key] = value),
+  };
 
   function showTab(i: number | null, keys = true) {
     shownRun = null;
@@ -77,10 +146,15 @@
   async function addTab(extension: string) {
     tabMenu = false;
     try {
-      setupForm = { index: null, tab: await invoke<Tab>("new_tab", { extension }) };
+      setupForm = { index: null, tab: await invoke<TabInfo>("new_tab", { extension }) };
     } catch (err) {
       say(String(err), true);
     }
+  }
+
+  async function openTabMenu() {
+    tabMenu = !tabMenu;
+    if (tabMenu && selected) available = await invoke<Extension[]>("tabs_available", { path: selected.path });
   }
 
   async function saveTab(change: "add" | "save" | "remove", setup: unknown = null) {
@@ -88,7 +162,8 @@
     const { index, tab } = setupForm;
     setupForm = null;
     details = await invoke<Details>("edit_tab", {
-      path: selected.path, change, index: index ?? 0, tab: setup === null ? null : { ...tab, setup },
+      path: selected.path, change, index: index ?? 0,
+      tab: setup === null ? null : { extension: tab.extension, plugin: tab.plugin, setup },
     });
     if (change === "add") showTab(details.tabs.length - 1);
     else if (change === "remove") showTab(null);
@@ -170,8 +245,8 @@
       return;
     }
     // The shown tab has the keyboard: its keys, and nothing of thumbdeck's but Esc
-    if (keysToTab && tabShown && tabRef && !typing && !dialog) {
-      if (!tabRef.handleKey(e) && e.key === "Escape") keysToTab = false;
+    if (keysToTab && tabShown && activeTab && !typing && !dialog) {
+      if (!activeTab.handleKey(e) && e.key === "Escape") keysToTab = false;
       e.preventDefault();
       return;
     }
@@ -339,8 +414,8 @@
     const path = selected?.path;
     if (!path) return void (branchState = null);
     const look = () =>
-      invoke<{ branch: { name: string | null; ahead: number; behind: number; gone: boolean }; changes: unknown[] }>("git_status", { path })
-        .then((s) => (branchState = { ...s.branch, changed: s.changes.length }))
+      invoke<{ name: string | null; ahead: number; behind: number; gone: boolean; changed: number }>("branch_status", { path })
+        .then((s) => (branchState = s))
         .catch(() => (branchState = null)); // not a git repo
     look();
     const timer = setInterval(() => !document.hidden && look(), 5000);
@@ -449,7 +524,7 @@
     : form || setupForm || helpOpen || updateDialog || settingsOpen ? DIALOG
     : filtering ? FILTER
     : hints ? TOOLKIT
-    : keysToTab && tabShown && tabRef ? tabRef.keymap()
+    : keysToTab && tabShown && activeTab ? activeTab.keymap()
     : MAIN,
   );
   // Toolkit grouped by where each action came from: yours, then one group per pack
@@ -488,6 +563,14 @@
     form = null;
   }
 
+  /** Start a command in a project: a tab with its output (shown when `show`), in Running */
+  async function startRun(p: { path: string }, command: string, label: string, source: string, show: boolean) {
+    const id = await invoke<number>("run_action", { path: p.path, command, label });
+    runs.push({ id, projectPath: p.path, label, source, command, startedAt: Date.now(), endedAt: null, code: null, lines: [] });
+    if (show) shownRun = id;
+    return id;
+  }
+
   async function run(a: Action) {
     if (!selected) return;
     if (a.confirm && !(await ask(`${a.command}`, { title: `Run "${a.label}"?`, kind: "warning", okLabel: "Run" }))) return;
@@ -500,12 +583,7 @@
       }
       return;
     }
-    const id = await invoke<number>("run_action", { path: selected.path, command: a.command, label: a.label });
-    runs.push({
-      id, projectPath: selected.path, label: a.label, source: a.source, command: a.command,
-      startedAt: Date.now(), endedAt: null, code: null, lines: [],
-    });
-    shownRun = id;
+    await startRun(selected, a.command, a.label, a.source, true);
   }
 
   function stop(r: Run) {
@@ -524,7 +602,8 @@
 
   onMount(() => {
     invoke<ProjectList>("list_projects").then((list) => applyList(list, true));
-    invoke<Extension[]>("extensions_available").then((list) => (available = list));
+    getVersion().then((v) => (version = v));
+    const idle = setInterval(unloadIdleFrames, 60_000);
     const unlistenOut = listen<{ id: number; line: string; stderr: boolean }>("run-output", async (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
       if (!r) return;
@@ -554,6 +633,7 @@
       unlistenUpdate.then((f) => f());
       unlistenPlugins.then((f) => f());
       clearInterval(timer);
+      clearInterval(idle);
     };
   });
 </script>
@@ -641,6 +721,14 @@
                 onclick={() => (wide = !wide)}>{wide ? "⤡" : "⤢"}</button>
       </nav>
       <div class="view">
+      {#each liveFrames as f (f.key)}
+        <PluginFrame bind:this={frameRefs[f.key]} info={f.tab.frame!} frameKey={f.key} surface="tab" surfaceId={f.tab.extension}
+                     project={f.project} setup={f.tab.setup} active={keysToTab && shownFrameKey === f.key}
+                     visible={shownFrameKey === f.key && !current} thumbdeck={version} {host} {say}
+                     onActivate={() => shownFrameKey === f.key && (keysToTab = true)} onRelease={() => (keysToTab = false)}
+                     onEditSetup={() => f.project.path === selected?.path && (setupForm = { index: f.index, tab: f.tab })}
+                     openReview={(r) => (review = r)} />
+      {/each}
       {#if current}
         <pre class="output" bind:this={outputEl}><span class="cmd">$ {current.command}</span>
 {#each current.lines as l}<span class:err={l.stderr}>{l.text}</span>
@@ -648,14 +736,25 @@
       {:else if tabShown && details && shownTab !== null}
         {@const t = details.tabs[shownTab]}
         {@const ext = extensions[t.extension]}
-        {#if ext}
+        {#if t.frame}
+          <!-- a plugin's tab: its frame is above, kept alive -->
+        {:else if t.missing}
+          <div class="empty">
+            <p>{t.missing}</p>
+            <button class="ghost" onclick={() => { setupForm = { index: shownTab, tab: t }; saveTab("remove"); }}>Remove this tab</button>
+          </div>
+        {:else if ext && !t.plugin}
           {#key `${selected.path}:${shownTab}:${JSON.stringify(t.setup)}`}
             <ext.tab bind:this={tabRef} path={selected.path} project={selected.name} setup={t.setup} active={keysToTab} {say}
                      onActivate={() => (keysToTab = true)} onRelease={() => (keysToTab = false)}
                      onEditSetup={() => (setupForm = { index: shownTab, tab: t })} openReview={(r) => (review = r)} />
           {/key}
         {:else}
-          <p class="empty">This thumbdeck doesn't have the extension "{t.extension}" (a newer version may).</p>
+          <div class="empty">
+            <p>The "{t.extension}" tab isn't built in any more: it's a plugin now. Add the plugin in Settings (,) › Plugins,
+              then add its tab again.</p>
+            <button class="ghost" onclick={() => { setupForm = { index: shownTab, tab: t }; saveTab("remove"); }}>Remove this tab</button>
+          </div>
         {/if}
       {:else if details?.readme}
         <article class="readme" bind:this={readmeEl}>{@html marked.parse(details.readme)}</article>
@@ -671,7 +770,7 @@
         </button>
         {#each details?.tabs ?? [] as t, i}
           <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}</button>
+                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
         {/each}
         {#each runTabs as r, i (r.id)}
           {@const n = 2 + (details?.tabs.length ?? 0) + i}
@@ -685,7 +784,7 @@
         {/each}
         </div>
         <span class="menu-anchor" bind:this={tabMenuEl}>
-          <button class="btab add" title="Add a tab to this project" onclick={() => (tabMenu = !tabMenu)}>+</button>
+          <button class="btab add" title="Add a tab to this project" onclick={openTabMenu}>+</button>
           {#if tabMenu}
             <div class="menu up">
               {#each available as x}
@@ -830,7 +929,24 @@
 
 {#if setupForm && selected}
   {@const ext = extensions[setupForm.tab.extension]}
-  {#if ext}
+  {@const frame = setupForm.tab.frame}
+  {#if setupForm.tab.plugin && frame}
+    <PluginSetupForm name={frame.name} pluginName={frame.plugin_name} description="" fields={frame.fields} setup={setupForm.tab.setup}
+                     isNew={setupForm.index === null} project={selected.name}
+                     onSave={(setup) => saveTab(setupForm?.index === null ? "add" : "save", setup)}
+                     onRemove={() => saveTab("remove")} onCancel={() => (setupForm = null)} />
+  {:else if setupForm.tab.plugin}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="backdrop" onclick={(e) => e.target === e.currentTarget && (setupForm = null)}>
+      <div class="dialog">
+        <p>{setupForm.tab.missing}</p>
+        <div class="buttons">
+          <button class="ghost" onclick={() => saveTab("remove")}>Remove tab</button>
+          <button class="primary" onclick={() => (setupForm = null)}>Close</button>
+        </div>
+      </div>
+    </div>
+  {:else if ext}
     <ext.setup setup={setupForm.tab.setup} isNew={setupForm.index === null} project={selected.name}
                onSave={(setup) => saveTab(setupForm?.index === null ? "add" : "save", setup)}
                onRemove={() => saveTab("remove")} onCancel={() => (setupForm = null)} />
@@ -870,16 +986,6 @@
 {/if}
 
 <style>
-  :global(:root) {
-    /* Everforest dark hard */
-    --bg-dim: #1e2326; --bg0: #272e33; --bg1: #2e383c; --bg2: #374145; --bg3: #414b50;
-    --fg: #d3c6aa; --grey: #859289; --grey-dim: #7a8478;
-    --red: #e67e80; --orange: #e69875; --yellow: #dbbc7f; --green: #a7c080;
-    --aqua: #83c092; --blue: #7fbbb3; --purple: #d699b6;
-    --mono: "Iosevka Nerd Font", "JetBrains Mono", ui-monospace, monospace;
-    --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-    color-scheme: dark;
-  }
   :global(html, body) { margin: 0; height: 100%; background: var(--bg-dim); color: var(--fg); font: 14px/1.5 var(--sans); }
   :global(*) { box-sizing: border-box; }
   :global(button) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -973,6 +1079,7 @@
   .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
   .menu-new { color: var(--green); font-weight: 600; }
+  .tbadge { margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--bg3); color: var(--fg); font-size: 10.5px; }
   .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(img) { max-width: 100%; height: auto; border-radius: 6px; }

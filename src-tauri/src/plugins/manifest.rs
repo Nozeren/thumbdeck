@@ -43,12 +43,13 @@ struct Raw {
     #[serde(default)]
     settings: Vec<Field>,
     backend: Option<BackendDef>,
+    /// Keymaps in the order written (the first of a surface is its starting one)
     #[serde(default)]
-    keys: BTreeMap<String, Keymap>,
+    keys: toml::Table,
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // api, icon and keys are for the plugin frames (next step)
+#[allow(dead_code)] // api and icon aren't used yet
 pub struct Manifest {
     pub id: String,
     pub name: String,
@@ -67,7 +68,8 @@ pub struct Manifest {
     pub view: Option<ViewDef>,
     pub settings: Vec<Field>,
     pub backend: Option<BackendDef>,
-    pub keys: BTreeMap<String, Keymap>,
+    /// Keymaps by name, in the order written
+    pub keys: Vec<(String, Keymap)>,
 }
 
 /// [detect]: the conditions, and what matching projects get
@@ -408,7 +410,14 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
     }
 
     // Keys
-    for (name, map) in &raw.keys {
+    let mut keys: Vec<(String, Keymap)> = Vec::new();
+    for (name, value) in raw.keys {
+        match value.try_into::<Keymap>() {
+            Ok(map) => keys.push((name, map)),
+            Err(e) => out.push(format!("keys.{name}: {}", plain(e.message()))),
+        }
+    }
+    for (name, map) in &keys {
         out.extend(map.problems(name));
         let surface_exists = match map.surface.split_once(':') {
             Some(("tab", id)) => raw.tab.iter().any(|t| t.id == id),
@@ -443,11 +452,16 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
         view: raw.view,
         settings: raw.settings,
         backend: raw.backend,
-        keys: raw.keys,
+        keys,
     })
 }
 
 impl Manifest {
+    /// The keymaps of one of its surfaces ("tab:logs"), the starting one first
+    pub fn keymaps(&self, surface: &str) -> Vec<(String, Keymap)> {
+        self.keys.iter().filter(|(_, m)| m.surface == surface).cloned().collect()
+    }
+
     /// What it brings to the Toolkit (None when it brings nothing: no detect, actions or icon)
     pub fn provider(&self) -> Option<Provider> {
         let d = self.detect.as_ref();
@@ -704,8 +718,10 @@ type = "colour"
         let d = TempDir::new("manifest-keys");
         d.file("a.html", "");
         let base = format!("{MINIMAL}[[tab]]\nid = \"t\"\nname = \"T\"\npage = \"a.html\"\n");
-        let ok = format!("{base}[keys.list]\nname = \"T\"\nsurface = \"tab:t\"\nbindings = [{{ keys = [\"j\"], action = \"down\", does = \"down\" }}]\n");
+        let ok = format!("{base}[keys.list]\nname = \"T\"\nsurface = \"tab:t\"\nbindings = [{{ keys = [\"j\"], action = \"down\", does = \"down\" }}]\n[keys.all]\nname = \"A\"\nsurface = \"tab:t\"\nbindings = []\n");
         assert!(problems(&d, &ok).is_empty());
+        let names: Vec<String> = parse(&ok, &d.0).unwrap().keymaps("tab:t").into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, ["list", "all"], "in the order written, not sorted");
         let bad = format!("{base}[keys.list]\nname = \"T\"\nsurface = \"tab:nope\"\nbindings = [{{ keys = [\"j\"], action = \"jump\", does = \"x\" }}]\n");
         let p = problems(&d, &bad);
         assert_eq!(p.len(), 2, "{p:?}");

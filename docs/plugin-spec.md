@@ -437,9 +437,12 @@ interface Run { id: number; onOutput(fn: (line, stderr) => void); onExit(fn: (co
 td.tmux(command: string, { window: string }): Promise<string>   // thumbdeck's short message
 ```
 
-A string command runs through your login shell (aliases and PATH as in your terminal); an array
-runs the program directly, with no shell quoting to worry about. `cwd` defaults to the project
-folder. `exec` has a 30-second default `timeout`.
+A string command runs through the shell with your login shell's environment (PATH as in your
+terminal); an array runs the program directly, with no shell quoting to worry about. `cwd`
+defaults to the project folder. `exec` has a 30-second default `timeout`.
+
+`run` adds a tab with the command's output at the bottom of the center but doesn't switch to it:
+your page stays in front, and gets the output through `onOutput`.
 
 ### The window
 
@@ -453,7 +456,7 @@ td.ui.close(): void                          // a page: close it
 td.ui.openReview({                           // thumbdeck's review page for a diff
   title, subtitle?,
   diff: string | (() => Promise<string>),    // a function: read again on r
-  viewedKey,                                 // where files marked viewed are remembered
+  viewedKey,                                 // where files marked viewed are remembered (per plugin)
   startFile?,
 }): void
 td.ui.badge(text | number | null): void      // next to the tab's or panel's title (null: none)
@@ -568,8 +571,11 @@ plugin has the keyboard.
 `q` / `Escape` give the keyboard back unless the plugin binds them (to close something of its
 own first).
 
+A click in the frame gives it the keyboard (like `td.keys.take()`), and keys pressed with the
+focus in the frame go through thumbdeck the same way.
+
 **Typing**: while an `input` or `textarea` in the frame has focus, keys go to it as usual and
-no actions are sent. For anything else that needs raw keys (a key-driven game, a terminal),
+no actions are sent; `Esc` leaves the field. For anything else that needs raw keys (a key-driven game, a terminal),
 listen to `keydown` in the frame: keys that aren't in the current keymap reach the frame's own
 `keydown` listeners while it has the keyboard.
 
@@ -739,7 +745,8 @@ together. thumbdeck speaks a range of versions (this draft: only 1):
 2. Add it from its folder: **Settings › Plugins › Add › From a folder…**. Saving any of its
    files reloads it (its frames, and its backend if a backend file changed).
 3. **Its log** (Settings › Plugins › *the plugin* › Log): its pages' `console` output and
-   errors, its backend's stderr, and failed API calls.
+   uncaught errors (including failed API calls nobody caught), and its backend's stderr. In a
+   dev build of thumbdeck they're printed to its terminal too.
 4. **Devtools**: Settings › Plugins › *the plugin* › Inspect opens the web inspector on the
    frame that's showing.
 5. **Check it**: `thumbdeck plugin check <folder>` reads the manifest, checks every field, the
