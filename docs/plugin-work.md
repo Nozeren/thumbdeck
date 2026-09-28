@@ -128,8 +128,6 @@ while testing, and the first-run catalog is read from the local checkout
   (`packages/plugin`, `packages/backend`, `packages/check`).
 - **Confirm**: the avatar only reacts to Claude when the Agents plugin is installed (it sends
   `waiting` / `working`).
-- **Check by hand**: typing into a plugin's setup page (Logs' `S`) and saving it; my test keys
-  can't reach a field inside a frame (decision 28 and step 4's log).
 - **The release workflow** no longer checks out the plugins repo (the build doesn't need it);
   worth watching on the next release. `install.sh` doesn't update the submodule either.
 - **The README's screenshot** shows the old window (no Plugins pane).
@@ -304,7 +302,7 @@ while testing, and the first-run catalog is read from the local checkout
   (files and preview, a log, an entry, back, its setup page in the dialog).
 - Not driven in the dev app: typing into a setup page (my test keys can't reach a field
   inside a frame while the window isn't the active one); saving from it is a short path
-  (`td.setup.save` → the page's save). Worth a click when you try it.
+  (`td.setup.save` → the page's save). You tried it by hand afterwards: saving works.
 
 ### Step 5: the Plugins pane, views, panels, pages, the first start
 
