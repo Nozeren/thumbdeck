@@ -1,18 +1,22 @@
-//! The official plugins (the plugins repo, checked out in toolkits/plugins) give the Toolkit
+//! The official plugins (the plugins repo, checked out in toolkits: plugins/<kind>/<id>) give the Toolkit
 //! buttons and icons the built-in packs gave before them.
 
 use super::toolkit::{detect, icon, resolve, Provider};
 use crate::testutil::TempDir;
 use std::path::PathBuf;
 
-fn folder() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("toolkits/plugins")
+/// Every official plugin's folder: plugins/tabs/<id>, plugins/toolkits/<id>, …
+fn folders() -> Vec<PathBuf> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("toolkits/plugins");
+    let kinds = std::fs::read_dir(&root).expect("the plugins repo isn't checked out: run `git submodule update --init`");
+    let mut out: Vec<PathBuf> = kinds.flatten().flat_map(|k| std::fs::read_dir(k.path()).unwrap().flatten().map(|e| e.path())).collect();
+    out.sort();
+    out
 }
 
 fn providers() -> Vec<Provider> {
     let mut all = Vec::new();
-    for entry in std::fs::read_dir(folder()).expect("the plugins repo isn't checked out: run `git submodule update --init`") {
-        let dir = entry.unwrap().path();
+    for dir in folders() {
         let m = super::manifest::read(&dir).unwrap_or_else(|p| panic!("{}: {p:?}", dir.display()));
         all.extend(m.provider(&dir));
     }
@@ -31,8 +35,9 @@ fn ids(d: &TempDir) -> Vec<String> {
 
 #[test]
 fn every_official_plugin_checks_out() {
-    for entry in std::fs::read_dir(folder()).unwrap() {
-        let dir = entry.unwrap().path();
+    let all = folders();
+    assert!(all.len() >= 12, "tabs and toolkits: {all:?}");
+    for dir in all {
         let m = super::manifest::read(&dir).unwrap_or_else(|p| panic!("{}: {p:?}", dir.display()));
         assert_eq!(dir.file_name().unwrap().to_string_lossy(), m.id, "a plugin's folder is named after its id");
         assert!(dir.join("README.md").is_file(), "{} has a README", m.id);

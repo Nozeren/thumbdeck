@@ -120,8 +120,9 @@ while testing, and the first-run catalog is read from the local checkout
 
 ## Needs you
 
-- **Publish**: rename `thumbdeck-toolkits` to `thumbdeck-plugins` on GitHub (and make it public:
-  thumbdeck fetches the catalog and installs plugins from it without a login), push the
+- **Publish**: (renamed to `thumbdeck-plugins`; its plugins are now in `plugins/tabs/` and
+  `plugins/toolkits/`.) Make it public (thumbdeck fetches the catalog and installs plugins
+  from it without a login), push the
   submodule's `plugins` branch first, then thumbdeck's (its commits point at the submodule's).
   Tag the official plugins (`git-v1.0.0`, `logs-v1.0.0`, … the versions in their plugin.toml)
   so installs take a release rather than the branch. Publish the three npm packages

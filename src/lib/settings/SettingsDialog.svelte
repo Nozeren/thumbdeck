@@ -187,7 +187,7 @@
               <input bind:value={source} placeholder="https://github.com/someone/thumbdeck-pomodoro" {@attach (el) => el.focus()} />
             </label>
             <p class="hint">Its latest release is installed. For a plugin in a folder of a repository:
-              <code>url#plugins/django</code>.</p>
+              <code>url#plugins/toolkits/django</code>.</p>
             <div class="buttons"><button type="submit" class="primary" disabled={!source.trim() || !!busy}>Install</button></div>
           </form>
           <div class="or">
