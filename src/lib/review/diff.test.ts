@@ -83,6 +83,6 @@ test("changed words", () => {
 
 test("the Pull requests demo's diff", async () => {
   const { readFileSync } = await import("node:fs");
-  const files = parseDiff(readFileSync(new URL("../../../src-tauri/src/extensions/prs/testdata/demo.diff", import.meta.url), "utf8"));
+  const files = parseDiff(readFileSync(new URL("./testdata/demo.diff", import.meta.url), "utf8"));
   assert.deepEqual(files.map((f) => [f.path, f.status]), [["src/checkout.py", "modified"], ["src/discounts.py", "added"], ["features/checkout.feature", "modified"]]);
 });

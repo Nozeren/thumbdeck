@@ -5,7 +5,6 @@
 
 pub mod agents;
 pub mod logs;
-pub mod prs;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -35,12 +34,6 @@ pub const AVAILABLE: &[Extension] = &[
         name: "Agents",
         description: "Claude Code sessions in this project, their subagents, and the subagents it defines",
         setup: complete_setup::<agents::Setup>,
-    },
-    Extension {
-        id: "prs",
-        name: "Pull requests",
-        description: "The repo's open PRs that concern you: to review again, to review, reviewed, yours",
-        setup: complete_setup::<prs::Setup>,
     },
 ];
 

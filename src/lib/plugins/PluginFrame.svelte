@@ -157,7 +157,9 @@
         return;
       }
       case "ui.badge": return host.badge(frameKey, p.value);
-      case "ui.mood": return; // the avatar listens to plugins in a later step
+      case "ui.mood":
+        if (!["waiting", "working", "reading", "review"].includes(p.signal)) throw new Error(`the avatar has no signal ${p.signal}`);
+        return host.mood(frameKey, p.signal, p.value);
       case "ui.openPage": case "ui.close": case "ui.status":
         throw new Error(`${method} isn't in this thumbdeck yet`);
       case "keys.use":
@@ -242,6 +244,7 @@
       if (e.payload.plugin === info.plugin) event("backend", { name: e.payload.name, data: e.payload.data });
     });
     return () => {
+      host.forget(frameKey);
       backend.then((f) => f());
       window.removeEventListener("message", onMessage);
       window.removeEventListener("focus", focus);

@@ -1,0 +1,2 @@
+# The plugins repo: editing a plugin needs no rebuild (linked plugins are read as they are)
+toolkits/

@@ -167,21 +167,4 @@ export const AGENTS_START: Keymap = {
 };
 
 // ------------------------------------------------------------ Pull requests tab
-export const PRS: Keymap = {
-  name: "PULL REQUESTS",
-  bindings: [
-    ...MOVE,
-    bind(["l", "Enter"], "open", "review its changes"),
-    bind("v", "review", "review its changes"),
-    bind("o", "outside", "open in the browser (marks its 🔔 read)"),
-    bind(["d", "PageDown"], "page-down", "scroll the details down"),
-    bind(["u", "PageUp"], "page-up", "scroll the details up"),
-    bind("r", "refresh", "refresh now"),
-    SETUP,
-    LEAVE,
-    HELP,
-  ],
-};
-
-// ------------------------------------------------------------ Git tab
-export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY, AGENTS_LIST, AGENTS_TRANSCRIPT, AGENTS_START, PRS];
+export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY, AGENTS_LIST, AGENTS_TRANSCRIPT, AGENTS_START];

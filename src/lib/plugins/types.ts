@@ -87,4 +87,8 @@ export interface Host {
   refreshToolkit(plugin: string): void;
   /** A tab's badge next to its title (null: none) */
   badge(key: string, value: string | null): void;
+  /** A signal for the avatar from this frame (null takes it back) */
+  mood(key: string, signal: string, value: unknown): void;
+  /** The frame is gone: its signals go too */
+  forget(key: string): void;
 }

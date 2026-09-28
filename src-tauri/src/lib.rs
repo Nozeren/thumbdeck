@@ -618,34 +618,6 @@ async fn agents_transcript(file: String) -> Result<Vec<agents::transcript::Entry
     agents::transcript::read(Path::new(&file))
 }
 
-// ------------------------------------------------------------ pull requests extension
-
-use extensions::prs;
-
-#[tauri::command]
-async fn prs_list(path: String, setup: prs::Setup) -> Result<prs::PrList, String> {
-    let repo = prs::repo(Path::new(&path), &setup)?;
-    prs::fetch(&repo, &setup)
-}
-
-/// A PR's diff for the review page (without checking it out)
-#[tauri::command]
-async fn prs_diff(path: String, setup: prs::Setup, number: u64) -> Result<String, String> {
-    let repo = prs::repo(Path::new(&path), &setup)?;
-    prs::diff(&repo, number)
-}
-
-/// Open a PR in the browser, marking its notification read
-#[tauri::command]
-async fn prs_open(app: AppHandle, url: String, notification: Option<String>) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
-    app.opener().open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
-    if let Some(thread) = notification {
-        prs::mark_read(&thread)?;
-    }
-    Ok(())
-}
-
 // ------------------------------------------------------------ the status line
 
 /// The project's branch and how many files changed, for the status line
@@ -713,8 +685,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, prs_list, prs_open, claude_live,
-            branch_status, prs_diff,
+            logs_summary, logs_size, check_update, install_update, restart, readme_image, agents_list, agents_transcript, agents_start, claude_live,
+            branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
             watch_for_updates(app.handle().clone());

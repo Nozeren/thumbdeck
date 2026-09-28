@@ -18,7 +18,7 @@
   import { actionFor, keysLabel } from "$lib/keys/keys";
   import { DIALOG, FILTER, MAIN, REVIEW, TOOLKIT } from "$lib/keys/maps";
   import type { ReviewRequest } from "$lib/review/types";
-  import { pickMood } from "$lib/avatar/mood";
+  import { combine, pickMood } from "$lib/avatar/mood";
   import { avatarSignals } from "$lib/avatar/signals.svelte";
 
   let projects = $state<Project[]>([]);
@@ -136,7 +136,14 @@
       if (selected) details = await invoke<Details>("project_details", { path: selected.path });
     },
     badge: (key, value) => (badges[key] = value),
+    mood: (key, signal, value) => (pluginMoods[key] = { ...pluginMoods[key], [signal]: value }),
+    forget: (key) => {
+      delete pluginMoods[key];
+      delete badges[key];
+    },
   };
+  // What plugin frames and backends tell the avatar: sender -> signal -> value
+  let pluginMoods = $state<Record<string, Record<string, unknown>>>({});
 
   function showTab(i: number | null, keys = true) {
     shownRun = null;
@@ -446,9 +453,15 @@
     pickMood(
       {
         runs,
-        claude: claudeLive,
-        logsReading: avatarSignals.logsReading > 0,
-        prsToReview: avatarSignals.prsToReview,
+        plugins: combine([
+          ...Object.values(pluginMoods),
+          // The built-in tabs', until they're plugins too
+          {
+            reading: avatarSignals.logsReading > 0,
+            waiting: claudeLive.find((c) => c.status === "waiting") && `Claude in ${claudeLive.find((c) => c.status === "waiting")!.project}`,
+            working: claudeLive.find((c) => c.status === "busy") && `Claude in ${claudeLive.find((c) => c.status === "busy")!.project}`,
+          },
+        ]),
         update: update?.version ?? null,
         lastInput,
       },
@@ -609,6 +622,7 @@
     const unlistenBackendUi = listen<{ plugin: string; method: string; params: any }>("plugin-backend-ui", (e) => {
       const { plugin, method, params } = e.payload;
       if (method === "ui.say") say(String(params?.text ?? ""), !!params?.error);
+      else if (method === "ui.mood") host.mood(`backend:${plugin}`, String(params?.signal), params?.value ?? null);
       else if (method === "ui.badge") {
         for (const f of liveFrames) if (f.tab.plugin === plugin) badges[f.key] = params?.value == null ? null : String(params.value);
       }
