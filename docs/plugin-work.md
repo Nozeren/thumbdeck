@@ -236,6 +236,12 @@ while testing, and the first-run catalog is read from the local checkout
     not in the project). Ports, Env check, Dev utils and Notes are recommended in the catalog;
     Azure Boards and Calendar aren't (they need an account).
 
+45. **Clipboard keeps its history in its own file** (0600) instead of plugin storage, which isn't
+    private; password managers' copies (marked with a clipboard type) are skipped. On Wayland
+    it's told of each copy (`wl-paste --watch`); on macOS and X11 it looks every second.
+46. **Calendar's month is a mode of its view** (`m`), not a second view: the same keys move a
+    day, a week (`j` / `k`) or a month (`d` / `u`, `]` / `[`); the side shows the selected day.
+
 ## Log
 
 ### Step 1: manifests, installing, Settings › Plugins
@@ -361,3 +367,10 @@ while testing, and the first-run catalog is read from the local checkout
   `x`; a secret field's dots and Show / Hide (in a setup form, added for the test).
 - GitHub's push protection refused a made-up Stripe-like key in a test; the test uses a plain
   string now.
+
+### Clipboard, and Calendar's month
+
+- Clipboard (a view, with a backend that starts with thumbdeck), Calendar 1.1.0 (the month).
+- Tried in the dev app: copies showing up with their kinds, `y` copying one back (checked with
+  `wl-paste`), `p` pinning, the history file at 0600 (your clipboard was put back after); the
+  month grid in a narrow window, moving by day, week and month, the day's events beside it.
