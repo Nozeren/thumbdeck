@@ -6,7 +6,8 @@
   import { onMount, tick, untrack } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import type { Action, Addable, CustomAction, Details, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
-  import type { Host, TabExports } from "$lib/plugins/types";
+  import type { CatalogEntry, FrameInfo, Host, PanelInfo, TabExports, View } from "$lib/plugins/types";
+  import CatalogDialog from "$lib/plugins/CatalogDialog.svelte";
   import PluginFrame from "$lib/plugins/PluginFrame.svelte";
   import PluginSetupForm from "$lib/plugins/PluginSetupForm.svelte";
   import { getVersion } from "@tauri-apps/api/app";
@@ -15,7 +16,7 @@
   import StatusBar from "$lib/StatusBar.svelte";
   import SettingsDialog from "$lib/settings/SettingsDialog.svelte";
   import { actionFor, keysLabel } from "$lib/keys/keys";
-  import { DIALOG, FILTER, MAIN, REVIEW, TOOLKIT } from "$lib/keys/maps";
+  import { DIALOG, FILTER, MAIN, PLUGINS, REVIEW, TOOLKIT } from "$lib/keys/maps";
   import type { ReviewRequest } from "$lib/review/types";
   import { combine, pickMood } from "$lib/avatar/mood";
 
@@ -84,8 +85,60 @@
     const t = details.tabs[shownTab];
     return t?.frame ? frameKeyOf(selected.path, shownTab, t) : null;
   });
-  // The shown tab's keys
-  const activeTab = $derived(shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : null);
+  // ------------------------------------------------------------ plugins' views, pages, panels
+  let views = $state<View[]>([]);
+  let panels = $state<PanelInfo[]>([]);
+  // The view shown in the center instead of the project (a plugin id), and the views kept alive
+  let shownView = $state<string | null>(null);
+  let liveViews = $state<{ key: string; plugin: string; frame: FrameInfo }[]>([]);
+  let viewRefs = $state<Record<string, TabExports | null>>({});
+  let statuses = $state<Record<string, string | null>>({});
+  // The Plugins pane has the keyboard (Ctrl+p)
+  let paneKeys = $state(false);
+  let paneCursor = $state(0);
+  // A plugin's page over the whole window
+  let pluginPage = $state<{ key: string; id: string; info: FrameInfo; data: unknown; project: { path: string; name: string; branch: string | null } | null } | null>(null);
+  let pageRef = $state<TabExports | null>(null);
+  // Bumped when a linked plugin's files change: its frames load again
+  let reloads = $state<Record<string, number>>({});
+  // The official plugins, offered on the first start
+  let catalogOffer = $state<CatalogEntry[] | null>(null);
+
+  const shownViewKey = $derived(shownView ? `${shownView}#${reloads[shownView] ?? 0}` : null);
+
+  async function loadPluginViews() {
+    views = await invoke<View[]>("plugin_views");
+    if (shownView && !views.some((v) => v.plugin === shownView)) shownView = null;
+    paneCursor = Math.min(paneCursor, Math.max(0, views.length - 1));
+  }
+
+  async function loadPanels() {
+    panels = await invoke<PanelInfo[]>("plugin_panels", { path: selected?.path ?? null });
+  }
+
+  function openView(plugin: string, keys = true) {
+    const v = views.find((x) => x.plugin === plugin);
+    if (!v) return;
+    shownView = plugin;
+    const key = `${plugin}#${reloads[plugin] ?? 0}`;
+    if (!liveViews.some((x) => x.key === key)) liveViews.push({ key, plugin, frame: v.frame });
+    paneKeys = false;
+    keysToTab = keys;
+  }
+
+  async function openPluginPage(plugin: string, id: string, data: unknown, project: { path: string; name: string; branch: string | null } | null) {
+    try {
+      const info = await invoke<FrameInfo>("plugin_frame", { plugin, surface: "page", id });
+      pluginPage = { key: `page:${plugin}:${id}:${Date.now()}`, id, info, data, project };
+    } catch (err) {
+      say(String(err), true);
+    }
+  }
+
+  // The shown tab's (or view's) keys
+  const activeTab = $derived(
+    shownViewKey ? (viewRefs[shownViewKey] ?? null) : shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : null,
+  );
 
   // Start the shown plugin tab's frame, or mark it shown again
   $effect(() => {
@@ -138,11 +191,15 @@
       delete pluginMoods[key];
       delete badges[key];
     },
+    openPage: (plugin, id, data, project) => openPluginPage(plugin, id, data, project),
+    closePage: () => (pluginPage = null),
+    status: (plugin, text) => (statuses[plugin] = text),
   };
   // What plugin frames and backends tell the avatar: sender -> signal -> value
   let pluginMoods = $state<Record<string, Record<string, unknown>>>({});
 
   function showTab(i: number | null, keys = true) {
+    shownView = null;
     shownRun = null;
     shownTab = i;
     keysToTab = i !== null && keys;
@@ -186,6 +243,8 @@
 
   // Plugins changed: the Toolkit and the project icons may have too
   async function pluginsChanged() {
+    loadPluginViews();
+    loadPanels();
     applyList(await invoke<ProjectList>("list_projects"));
     if (selected) details = await invoke<Details>("project_details", { path: selected.path });
   }
@@ -232,8 +291,35 @@
       reviewRef?.handleKey(e);
       return;
     }
+    // A plugin's page covers everything too (Esc or q close it, unless it uses them)
+    if (pluginPage) {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
+      pageRef?.handleKey(e);
+      return;
+    }
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
-    const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen;
+    const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer;
+    // Ctrl+p: the Plugins pane has the keyboard (anywhere)
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "p" && !dialog) {
+      e.preventDefault();
+      if (!views.length) return say("No plugin has a view: plugins with one show in the Plugins pane");
+      keysToTab = false;
+      paneKeys = true;
+      return;
+    }
+    if (paneKeys && !typing && !dialog) {
+      e.preventDefault();
+      switch (actionFor(PLUGINS, e)) {
+        case "down": paneCursor = Math.min(views.length - 1, paneCursor + 1); break;
+        case "up": paneCursor = Math.max(0, paneCursor - 1); break;
+        case "first": paneCursor = 0; break;
+        case "last": paneCursor = views.length - 1; break;
+        case "open": if (views[paneCursor]) openView(views[paneCursor].plugin); break;
+        case "leave": paneKeys = false; break;
+        case "help": helpOpen = true; paneKeys = false; break;
+      }
+      return;
+    }
     // 1 README, 2… extension tabs
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
@@ -250,7 +336,7 @@
       return;
     }
     // The shown tab has the keyboard: its keys, and nothing of thumbdeck's but Esc
-    if (keysToTab && tabShown && activeTab && !typing && !dialog) {
+    if (keysToTab && (tabShown || shownView) && activeTab && !typing && !dialog) {
       if (!activeTab.handleKey(e) && e.key === "Escape") keysToTab = false;
       e.preventDefault();
       return;
@@ -315,6 +401,8 @@
   let filter = $state("");
   let selected = $state<Project | null>(null);
   let details = $state<Details | null>(null);
+  // The selected project, as frames get it
+  const selectedInfo = $derived(selected ? { path: selected.path, name: selected.name, branch: selected.branch } : null);
   let runs = $state<Run[]>([]);
   let shownRun = $state<number | null>(null); // run whose output is in the center; null = README
   let now = $state(Date.now());
@@ -507,10 +595,12 @@
   /** Who has the keyboard, for the status bar at the bottom */
   const barKeys = $derived(
     review ? REVIEW
-    : form || setupForm || helpOpen || updateDialog || settingsOpen ? DIALOG
+    : pluginPage && pageRef ? pageRef.keymap()
+    : form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer ? DIALOG
+    : paneKeys ? PLUGINS
     : filtering ? FILTER
     : hints ? TOOLKIT
-    : keysToTab && tabShown && activeTab ? activeTab.keymap()
+    : keysToTab && (tabShown || shownView) && activeTab ? activeTab.keymap()
     : MAIN,
   );
   // Toolkit grouped by where each action came from: yours, then one group per pack
@@ -522,10 +612,13 @@
 
   async function select(p: Project) {
     selected = p;
+    shownView = null;
+    paneKeys = false;
     invoke("edit_projects", { change: "last", path: p.path }); // remembered for the next start
     shownRun = null;
     showTab(null);
     details = null;
+    loadPanels();
     details = await invoke<Details>("project_details", { path: p.path });
   }
 
@@ -589,6 +682,22 @@
   onMount(() => {
     invoke<ProjectList>("list_projects").then((list) => applyList(list, true));
     getVersion().then((v) => (version = v));
+    loadPluginViews();
+    // The first start with plugins: offer the official ones (quietly skipped when offline)
+    invoke<{ plugins: CatalogEntry[]; offered: boolean }>("plugin_catalog")
+      .then((c) => !c.offered && c.plugins.length && (catalogOffer = c.plugins))
+      .catch(() => {});
+    // A linked plugin's files changed: its frames load again
+    const unlistenChanged = listen<string>("plugin-changed", async (e) => {
+      const id = e.payload;
+      reloads[id] = (reloads[id] ?? 0) + 1;
+      liveFrames = liveFrames.filter((f) => f.tab.plugin !== id);
+      liveViews = liveViews.filter((v) => v.plugin !== id);
+      if (shownView === id) openView(id, keysToTab);
+      if (pluginPage?.info.plugin === id) pluginPage = null;
+      say(`${id} changed: reloaded`);
+      await pluginsChanged();
+    });
     const idle = setInterval(unloadIdleFrames, 60_000);
     const unlistenOut = listen<{ id: number; line: string; stderr: boolean }>("run-output", async (e) => {
       const r = runs.find((x) => x.id === e.payload.id);
@@ -630,6 +739,7 @@
       unlistenExit.then((f) => f());
       unlistenUpdate.then((f) => f());
       unlistenPlugins.then((f) => f());
+      unlistenChanged.then((f) => f());
       unlistenActions.then((f) => f());
       unlistenBackendUi.then((f) => f());
       clearInterval(timer);
@@ -705,10 +815,45 @@
         </div>
       {/each}
     </section>
+    {#if views.length}
+      <!-- The plugins with a view of their own (Ctrl+p) -->
+      <section class="card pane" class:keys={paneKeys}>
+        <h2><span class="dot aqua"></span>Plugins <span class="count">Ctrl+p</span></h2>
+        <ul>
+          {#each views as v, i (v.plugin)}
+            <li class="project">
+              <button class="pick" class:active={shownView === v.plugin} class:cursor={paneKeys && i === paneCursor}
+                      onclick={() => openView(v.plugin)}>
+                <span class="kind">◇</span><span class="name">{v.name}</span>
+                {#if v.status && statuses[v.plugin]}<span class="vstatus">{statuses[v.plugin]}</span>{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
   </aside>
 
   <!-- ------------------------------------------------------------ center -->
   <section class="panel center" bind:this={centerEl}>
+    <!-- A plugin's view (from the Plugins pane), in place of the project; kept alive -->
+    <div class="side" class:gone={!shownView}>
+      <nav class="crumbs">
+        <span class="path">Plugins</span><span> / </span>
+        <strong class="name">{views.find((v) => v.plugin === shownView)?.name ?? ""}</strong>
+        <span class="spacer"></span>
+        {#if selected}<button class="tab" title="Back to the project (1)" onclick={() => showTab(null, false)}>‹ {selected.name}</button>{/if}
+      </nav>
+      <div class="view">
+        {#each liveViews as v (v.key)}
+          <PluginFrame bind:this={viewRefs[v.key]} info={v.frame} frameKey="view:{v.plugin}" surface="view" surfaceId=""
+                       project={selectedInfo} setup={null} active={keysToTab && shownViewKey === v.key} visible={shownViewKey === v.key}
+                       thumbdeck={version} {host} {say} onActivate={() => shownViewKey === v.key && (keysToTab = true)}
+                       onRelease={() => (keysToTab = false)} onEditSetup={() => {}} openReview={(r) => (review = r)} />
+        {/each}
+      </div>
+    </div>
+    <div class="side" class:gone={!!shownView}>
     {#if selected}
       <nav class="crumbs">
         <span class="path" title={selected.path}>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
@@ -786,6 +931,7 @@
     {:else}
       <p class="empty">No projects found in ~/dev, ~/projects or your home folder.</p>
     {/if}
+    </div>
   </section>
 
   <!-- ------------------------------------------------------------ running + toolkit -->
@@ -865,6 +1011,15 @@
         {/if}
       {/if}
     </section>
+    {#each panels as p (`${p.plugin}:${p.id}:${p.scope === "project" ? selected?.path : ""}:${reloads[p.plugin] ?? 0}`)}
+      {@const key = `panel:${p.plugin}:${p.id}`}
+      <section class="card ppanel">
+        <h2><span class="dot blue"></span>{p.name}{#if badges[key]}<span class="tbadge">{badges[key]}</span>{/if}</h2>
+        <PluginFrame info={p.frame} frameKey={key} surface="panel" surfaceId={p.id} project={selectedInfo} setup={null}
+                     active={false} visible={true} lines={p.lines} thumbdeck={version} {host} {say}
+                     onActivate={() => {}} onRelease={() => {}} onEditSetup={() => {}} openReview={(r) => (review = r)} />
+      </section>
+    {/each}
   </aside>
 </main>
 
@@ -873,6 +1028,21 @@
 
 {#if review}
   <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} />
+{/if}
+
+{#if pluginPage}
+  <div class="plugin-page">
+    {#key pluginPage.key}
+      <PluginFrame bind:this={pageRef} info={pluginPage.info} frameKey={pluginPage.key} surface="page" surfaceId={pluginPage.id}
+                   project={pluginPage.project} data={pluginPage.data} setup={null} active={true} visible={true}
+                   thumbdeck={version} {host} {say} onActivate={() => {}} onRelease={() => (pluginPage = null)}
+                   onEditSetup={() => {}} openReview={(r) => (review = r)} />
+    {/key}
+  </div>
+{/if}
+
+{#if catalogOffer}
+  <CatalogDialog plugins={catalogOffer} onDone={() => { catalogOffer = null; pluginsChanged(); }} />
 {/if}
 
 {#if helpOpen}
@@ -983,6 +1153,7 @@
   h3 { margin: 10px 0 6px; font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; letter-spacing: 0.08em; }
   :global(.dot) { width: 8px; height: 8px; border-radius: 50%; }
   :global(.dot.purple) { background: var(--purple); } :global(.dot.green) { background: var(--green); } :global(.dot.orange) { background: var(--orange); }
+  :global(.dot.aqua) { background: var(--aqua); } :global(.dot.blue) { background: var(--blue); }
   .count, :global(.for) { margin-left: auto; color: var(--grey); font-weight: 400; }
   :global(.hint), .empty { color: var(--grey); font-size: 13px; }
   .hint.problem { color: var(--red); font-size: 12px; margin: 0 0 6px; }
@@ -1061,6 +1232,16 @@
   .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
   .menu-new { color: var(--green); font-weight: 600; }
+  .side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .side.gone { display: none; }
+  .pane { flex: none; max-height: 35%; overflow: auto; }
+  .pane.keys { border-color: var(--orange); }
+  .pane ul { list-style: none; margin: 0; padding: 0; }
+  .pick.cursor { box-shadow: inset 2px 0 var(--orange); background: var(--bg1); }
+  .vstatus { margin-left: auto; color: var(--grey); font: 11px var(--mono); }
+  .ppanel { flex: none; display: flex; flex-direction: column; padding-bottom: 8px; }
+  .ppanel h2 { margin-bottom: 6px; }
+  .plugin-page { position: fixed; inset: 0 0 22px 0; z-index: 40; background: var(--bg0); display: flex; }
   .tbadge { margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--bg3); color: var(--fg); font-size: 10.5px; }
   .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }

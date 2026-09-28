@@ -233,8 +233,9 @@ managed in **Settings › Plugins**.
 - A frame is loaded the first time it's shown and kept while thumbdeck runs, so switching
   tabs doesn't reload it. thumbdeck may unload frames that haven't been shown for a while;
   keep anything that matters in [storage](#storage).
-- Tab and project-scope panel frames belong to one project each: selecting another project
-  shows that project's frame.
+- Tab frames belong to one project each: selecting another project shows that project's frame.
+  A project-scope panel loads again for the newly selected project; app-scope frames (views,
+  app panels) stay and get the `project` event.
 - A frame learns it's hidden or shown through the `hidden` / `shown` events; stop polling
   while hidden.
 
@@ -761,8 +762,8 @@ together. thumbdeck speaks a range of versions (this draft: only 1):
 3. **Its log** (Settings › Plugins › *the plugin* › Log): its pages' `console` output and
    uncaught errors (including failed API calls nobody caught), and its backend's stderr. In a
    dev build of thumbdeck they're printed to its terminal too.
-4. **Devtools**: Settings › Plugins › *the plugin* › Inspect opens the web inspector on the
-   frame that's showing.
+4. **Devtools**: Settings › Plugins › *the plugin* › Inspect opens the web inspector (for the
+   whole window: pick the plugin's frame in it).
 5. **Check it**: `thumbdeck plugin check <folder>` reads the manifest, checks every field, the
    keys against the rules above, the `api` version and that every page and file it names
    exists. It prints what's wrong in plain sentences and exits non-zero. In CI, where

@@ -18,6 +18,7 @@ export const MAIN: Keymap = {
     bind("x", "remove", "hide the project (or remove one you added)"),
     bind("z", "wide", "wide: only the center (anywhere)"),
     bind(",", "settings", "settings: plugins"),
+    bind("Ctrl+p", "plugins", "the Plugins pane: the plugins' own views"),
     bind("Escape", "leave", "close menus and dialogs"),
     HELP,
   ],
@@ -71,4 +72,15 @@ export const REVIEW_FILES: Keymap = {
   ],
 };
 
-export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES];
+/** The Plugins pane (Ctrl+p) */
+export const PLUGINS: Keymap = {
+  name: "PLUGINS",
+  bindings: [
+    ...MOVE,
+    bind(["l", "Enter"], "open", "show the plugin's view (its keys go to it)"),
+    bind(["q", "Escape"], "leave", "back to the projects"),
+    HELP,
+  ],
+};
+
+export const ALL: Keymap[] = [PLUGINS, MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES];

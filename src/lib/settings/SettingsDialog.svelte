@@ -7,7 +7,7 @@
   import { marked } from "marked";
   import { onMount, tick } from "svelte";
   import FieldsForm from "../plugins/FieldsForm.svelte";
-  import type { PluginInfo } from "../plugins/types.ts";
+  import type { CatalogEntry, PluginInfo } from "../plugins/types.ts";
 
   let { updates, onUpdates, onChanged, onClose }: {
     /** Plugins with a newer release: id -> its tag */
@@ -29,6 +29,19 @@
   let readmeEl = $state<HTMLElement | null>(null);
   // The shown plugin's log: its pages' console and errors
   let log = $state<{ at: number; level: string; text: string }[]>([]);
+  // The official plugins not installed yet (read when Add a plugin is shown)
+  let catalog = $state<CatalogEntry[] | null>(null);
+  let catalogError = $state("");
+  const notInstalled = $derived((catalog ?? []).filter((c) => !plugins.some((p) => p.id === c.id)));
+
+  async function loadCatalog() {
+    if (catalog) return;
+    try {
+      catalog = (await invoke<{ plugins: CatalogEntry[] }>("plugin_catalog")).plugins;
+    } catch (err) {
+      catalogError = String(err);
+    }
+  }
   let logOpen = $state(false);
 
   async function loadLog(id: string) {
@@ -45,6 +58,7 @@
     values = p ? structuredClone($state.snapshot(p.settings)) : {};
     log = [];
     if (p) loadLog(id);
+    else loadCatalog();
   }
 
   // Runs a change, then shows the new list
@@ -76,8 +90,8 @@
     if (typeof folder === "string") add(true, folder);
   }
 
-  function edit(id: string, what: "enable" | "disable" | "update") {
-    const label = { enable: "Turning on…", disable: "Turning off…", update: "Updating…" }[what];
+  function edit(id: string, what: "enable" | "disable" | "update" | "up" | "down") {
+    const label = { enable: "Turning on…", disable: "Turning off…", update: "Updating…", up: "Moving…", down: "Moving…" }[what];
     change(label, () => invoke("plugin_edit", { id, change: what }), () => {
       if (what === "update") {
         const { [id]: _, ...rest } = updates;
@@ -173,6 +187,17 @@
             <p>Or use a folder on disk, as it is: for a plugin you're writing (it isn't copied).</p>
             <button class="ghost" disabled={!!busy} onclick={linkFolder}>Use a folder…</button>
           </div>
+          <div class="or">
+            <p>The official plugins{catalog && !notInstalled.length ? ": all installed." : ":"}</p>
+            {#if catalogError}<p class="hint problem">{catalogError}</p>{/if}
+            {#if !catalog && !catalogError}<p class="hint">Looking…</p>{/if}
+            {#each notInstalled as c (c.id)}
+              <div class="official">
+                <span><strong>{c.name}</strong> <span class="hint">{c.description}</span></span>
+                <button class="ghost small" disabled={!!busy} onclick={() => add(false, c.source)}>Install</button>
+              </div>
+            {/each}
+          </div>
           <p class="hint trust">A plugin runs with your rights, like an editor plugin: it can read and change your files
             and run commands. Install plugins you trust.</p>
         {:else if plugin}
@@ -237,6 +262,11 @@
           <div class="foot">
             <span class="hint">{plugin.folder}</span>
             <span class="spacer"></span>
+            <button class="ghost small" title="Earlier in the list (panels follow this order)" disabled={!!busy || plugins[0]?.id === plugin.id}
+                    onclick={() => edit(plugin.id, "up")}>↑</button>
+            <button class="ghost small" title="Later in the list" disabled={!!busy || plugins.at(-1)?.id === plugin.id}
+                    onclick={() => edit(plugin.id, "down")}>↓</button>
+            <button class="ghost small" title="Open the web inspector, to look into its pages" onclick={() => invoke("open_devtools")}>Inspect</button>
             <button class="ghost danger" disabled={!!busy} onclick={() => remove(plugin)}>Remove</button>
           </div>
         {/if}
@@ -299,4 +329,6 @@
   .or p { margin: 0 0 8px; }
   .trust { margin-top: auto; }
   code { font-family: var(--mono); color: var(--aqua); }
+  .official { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .official strong { font-family: var(--mono); }
 </style>

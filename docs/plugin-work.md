@@ -5,11 +5,11 @@ first when you're back.
 
 ## Where it stands
 
-Steps 1 to 4 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
-frames with the whole page API, plugins can have a backend, and every tab thumbdeck had (Git,
-Pull requests, Agents, Logs) and every pack (Django, Python, npm, …) is a plugin now; the
-built-in extensions and the pack code are gone. Step 5 (the Plugins pane, panels, pages, the
-first-run screen) is next.
+Steps 1 to 5 are done: plugins are installed and managed in Settings (`,`), the first start
+offers the official ones, plugin tabs, views (the Plugins pane, `Ctrl+p`), panels and pages
+run in frames with the whole page API, plugins can have a backend, and every tab thumbdeck
+had and every pack is a plugin now; the built-in extensions and the pack code are gone.
+Step 6 (docs and the plugins repo) is next.
 
 ## How I work
 
@@ -184,6 +184,19 @@ while testing, and the first-run catalog is read from the local checkout
 31. **Plugin tabs are saved as `tabs: { plugin, tab, setup }`** in settings.json; the old
     `extensions` list is dropped when thumbdeck saves (as decided: old tabs start fresh).
     Removing a plugin removes its tabs.
+32. **The first start offers the whole catalog, every plugin ticked**: all of it used to be
+    built in, so an update keeps what you had with one Enter. It's asked once
+    (`catalog_offered`); offline, it's quietly asked again next start. Settings › Plugins ›
+    Add a plugin lists the ones not installed.
+33. **The catalog comes with `curl`** (like the updater), from the plugins repo on GitHub;
+    `$THUMBDECK_CATALOG` (a URL or a file) takes its place, for trying it before it's pushed.
+34. **A project panel loads again when you pick another project** (app panels and views stay);
+    keeping one per project didn't seem worth the memory for a glance.
+35. **Inspect opens the inspector for the whole window** (Tauri's `devtools` feature, so the
+    installed app has it too); the plugin's frame is picked in it.
+36. **Panels follow the plugins' order**, changed with ↑ ↓ in Settings › Plugins.
+37. **A linked plugin reloads when any of its files changes** (looked at every 1.2 s; its
+    `node_modules` and `.git` aren't): its frames load again, its backend restarts.
 
 ## Log
 
@@ -262,3 +275,20 @@ while testing, and the first-run catalog is read from the local checkout
 - Not driven in the dev app: typing into a setup page (my test keys can't reach a field
   inside a frame while the window isn't the active one); saving from it is a short path
   (`td.setup.save` → the page's save). Worth a click when you try it.
+
+### Step 5: the Plugins pane, views, panels, pages, the first start
+
+- The Plugins pane below Projects (plugins with a `[view]`, their status); `Ctrl+p` gives it the
+  keyboard; a view shows in the center, kept alive, following the selected project.
+- Panels under the Toolkit (app or project scope, as tall as their page or a number of lines),
+  pages over the whole window (`td.ui.openPage`, closed with q / Esc or `td.ui.close`).
+- The catalog (`catalog.toml` in the plugins repo, tested against the plugins), the first
+  start's offer, and the catalog in Settings; ↑ ↓ and Inspect in Settings.
+- Reload on change for linked plugins.
+- Plugins repo: `examples/pomodoro` (a view with a status, an app panel, a page, a setting,
+  storage shared by two frames, a notification).
+- Tested: `cargo test` (71), `npm test` (19), `svelte-check`, the plugins repo's tests. In the dev
+  app with a fresh profile: the first start offered the 12 official plugins and installed them
+  (from the local repo); the Toolkit and icon came back. Pomodoro: the pane and its status,
+  `Ctrl+p` and Enter to its view, its keys, the panel ticking along, the history page and Esc
+  back, an edit to its file reloading it, and a 1-minute session ending (history saved).

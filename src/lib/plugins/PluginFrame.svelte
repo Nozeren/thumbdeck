@@ -14,7 +14,7 @@
   import { frameUrl } from "./frame.ts";
 
   let { info, frameKey, surface, surfaceId, project, setup, active, visible, thumbdeck, host,
-        say, onActivate, onRelease, onEditSetup, openReview, onSaveSetup, page, autofocus = false }: {
+        say, onActivate, onRelease, onEditSetup, openReview, onSaveSetup, page, autofocus = false, lines = null, data = undefined }: {
     info: FrameInfo;
     /** Stable name of this frame in the page (for badges) */
     frameKey: string;
@@ -40,6 +40,10 @@
     page?: string;
     /** Take the focus when loaded (a setup page in a dialog) */
     autofocus?: boolean;
+    /** A panel: how many lines tall (null: as tall as its page) */
+    lines?: number | null;
+    /** A page's data (from openPage) */
+    data?: unknown;
   } = $props();
 
   let iframe = $state<HTMLIFrameElement | null>(null);
@@ -47,7 +51,7 @@
 
   // The page's address carries its context; it doesn't change while the frame lives
   // svelte-ignore state_referenced_locally
-  const src = frameUrl(page ? { ...info, page } : info, { surface, id: surfaceId, project, api: 1, thumbdeck });
+  const src = frameUrl(page ? { ...info, page } : info, { surface, id: surfaceId, project, data, api: 1, thumbdeck });
 
   // ------------------------------------------------------------ talking to the frame
   // Plain copies: the page's state (a setup, say) is a proxy that can't be sent as it is
@@ -170,8 +174,13 @@
       case "ui.mood":
         if (!["waiting", "working", "reading", "review"].includes(p.signal)) throw new Error(`the avatar has no signal ${p.signal}`);
         return host.mood(frameKey, p.signal, p.value);
-      case "ui.openPage": case "ui.close": case "ui.status":
-        throw new Error(`${method} isn't in this thumbdeck yet`);
+      case "ui.openPage":
+        if (!info.plugin) throw new Error("no plugin");
+        return host.openPage(info.plugin, p.id, p.data ?? null, project);
+      case "ui.close":
+        if (surface !== "page") throw new Error("only a page can close itself");
+        return host.closePage();
+      case "ui.status": return host.status(info.plugin, p.text ?? null);
       case "keys.use":
         if (!maps.some(([n]) => n === p.map)) throw new Error(`there's no keymap ${p.map} for this ${surface}`);
         mapName = p.map;
@@ -211,6 +220,8 @@
       onActivate();
     } else if (m.kind === "ready") {
       event("keyboard", active);
+    } else if (m.kind === "height") {
+      contentHeight = Number(m.px) || 0;
     }
   }
 
@@ -225,6 +236,20 @@
     if (wasVisible !== null && visible !== wasVisible) event(visible ? "shown" : "hidden");
     wasVisible = visible;
   });
+  // An app-wide frame follows the selected project
+  let lastProject: string | null | undefined = undefined;
+  $effect(() => {
+    const path = project?.path ?? null;
+    if (lastProject !== undefined && path !== lastProject && (surface === "view" || surface === "panel")) event("project", project);
+    lastProject = path;
+  });
+
+  // A panel's height: its page's (up to half the column), or a number of lines
+  let contentHeight = $state(0);
+  const panelHeight = $derived(
+    surface !== "panel" ? null : lines ? `${lines * 18 + 8}px` : `min(${Math.max(contentHeight, 24)}px, 45vh)`,
+  );
+
   let lastSetup: string | null = null;
   $effect(() => {
     const now = JSON.stringify(setup);
@@ -266,7 +291,7 @@
   });
 </script>
 
-<div class="frame" class:active class:hidden={!visible}>
+<div class="frame" class:active class:hidden={!visible} class:panel={surface === "panel"} style:height={panelHeight}>
   <iframe bind:this={iframe} {src} title={info.name} allow="clipboard-read; clipboard-write"
           onload={() => autofocus && iframe?.focus()}></iframe>
   {#if help}<KeyHelp map={keymap()} note={info.plugin_name} />{/if}
@@ -276,5 +301,6 @@
   .frame { position: relative; flex: 1; min-height: 0; display: flex; border-top: 2px solid transparent; }
   .frame.active { border-top-color: var(--orange); }
   .frame.hidden { display: none; }
+  .frame.panel { flex: none; border-top: 0; }
   iframe { flex: 1; border: 0; width: 100%; height: 100%; background: var(--bg0); }
 </style>

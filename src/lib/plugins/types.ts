@@ -99,4 +99,38 @@ export interface Host {
   mood(key: string, signal: string, value: unknown): void;
   /** The frame is gone: its signals go too */
   forget(key: string): void;
+  /** One of the plugin's pages, over the whole window */
+  openPage(plugin: string, id: string, data: unknown, project: { path: string; name: string; branch: string | null } | null): void;
+  /** Close the page that's open */
+  closePage(): void;
+  /** The plugin's view: a short status next to its name in the Plugins pane */
+  status(plugin: string, text: string | null): void;
+}
+
+/** A plugin's view, in the Plugins pane */
+export interface View {
+  plugin: string;
+  name: string;
+  status: boolean;
+  frame: FrameInfo;
+}
+
+/** A panel on the right */
+export interface PanelInfo {
+  plugin: string;
+  id: string;
+  name: string;
+  scope: "project" | "app";
+  /** null: as tall as its page (up to half the column); else a number of lines */
+  lines: number | null;
+  frame: FrameInfo;
+}
+
+/** An official plugin in the catalog */
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  recommended: boolean;
 }

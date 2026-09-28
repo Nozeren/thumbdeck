@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod backend;
+pub mod catalog;
 pub mod detect;
 pub mod frame;
 pub mod install;
@@ -103,8 +104,9 @@ pub struct FrameInfo {
 }
 
 /// A plugin tab's frame info, with its setup completed; Err: why it can't show
-pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> Result<(FrameInfo, Value), String> {
-    let (p, m) = find(plugins, plugin).ok_or_else(|| {
+/// A working plugin, or why it can't be used (in words)
+fn working<'a>(plugins: &'a [Plugin], plugin: &str) -> Result<(&'a Plugin, &'a Manifest), String> {
+    find(plugins, plugin).ok_or_else(|| {
         let found = plugins.iter().find(|p| p.installed.id == plugin);
         let name = found.and_then(|p| p.manifest.as_ref()).map(|m| m.name.as_str()).unwrap_or(plugin);
         match found {
@@ -112,25 +114,145 @@ pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> 
             Some(_) => format!("The {name} plugin has problems, so it isn't loaded (Settings › Plugins)."),
             None => format!("The {name} plugin isn't installed (Settings › Plugins › Add a plugin)."),
         }
-    })?;
-    let t = m.tabs.iter().find(|t| t.id == tab).ok_or_else(|| format!("{} no longer has a tab called {tab}.", m.name))?;
-    let mut setup = manifest::complete(&t.setup, saved);
-    if setup.get("title").and_then(|v| v.as_str()).is_none_or(|t| t.trim().is_empty()) {
-        setup["title"] = Value::from(t.name.clone());
-    }
-    let info = FrameInfo {
+    })
+}
+
+/// What a frame of a plugin's surface needs: "tab", "panel", "page" or "view" (its id is
+/// ignored); a tab's setup form comes with it
+pub fn frame_info(plugins: &[Plugin], plugin: &str, surface: &str, id: &str) -> Result<FrameInfo, String> {
+    let (p, m) = working(plugins, plugin)?;
+    let missing = || format!("{} has no {surface} called {id}.", m.name);
+    let (name, page, fields, setup_page, keys) = match surface {
+        "tab" => {
+            let t = m.tabs.iter().find(|t| t.id == id).ok_or_else(missing)?;
+            (t.name.clone(), t.page.clone(), t.setup.clone(), t.setup_page.clone(), format!("tab:{id}"))
+        }
+        "panel" => {
+            let x = m.panels.iter().find(|x| x.id == id).ok_or_else(missing)?;
+            (x.name.clone(), x.page.clone(), vec![], None, format!("panel:{id}"))
+        }
+        "page" => {
+            let x = m.pages.iter().find(|x| x.id == id).ok_or_else(missing)?;
+            (m.name.clone(), x.page.clone(), vec![], None, format!("page:{id}"))
+        }
+        "view" => {
+            let v = m.view.as_ref().ok_or_else(|| format!("{} has no view.", m.name))?;
+            (v.name.clone(), v.page.clone(), vec![], None, "view".to_string())
+        }
+        _ => return Err(format!("there's no surface {surface}")),
+    };
+    Ok(FrameInfo {
         plugin: plugin.to_string(),
         version: m.version.clone(),
         folder: p.folder.to_string_lossy().to_string(),
         data_folder: api::data_folder(plugin).map(|d| d.to_string_lossy().to_string()).unwrap_or_default(),
         plugin_name: m.name.clone(),
-        name: t.name.clone(),
-        page: t.page.clone(),
-        keymaps: m.keymaps(&format!("tab:{tab}")),
-        fields: t.setup.clone(),
-        setup_page: t.setup_page.clone(),
-    };
-    Ok((info, setup))
+        name,
+        page,
+        keymaps: m.keymaps(&keys),
+        fields,
+        setup_page,
+    })
+}
+
+/// A plugin tab's frame info, with its setup completed; Err: why it can't show
+pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> Result<(FrameInfo, Value), String> {
+    let (_, m) = working(plugins, plugin)?;
+    let t = m.tabs.iter().find(|t| t.id == tab).ok_or_else(|| format!("{} no longer has a tab called {tab}.", m.name))?;
+    let mut setup = manifest::complete(&t.setup, saved);
+    if setup.get("title").and_then(|v| v.as_str()).is_none_or(|t| t.trim().is_empty()) {
+        setup["title"] = Value::from(t.name.clone());
+    }
+    Ok((frame_info(plugins, plugin, "tab", tab)?, setup))
+}
+
+/// A plugin's view, for the Plugins pane
+#[derive(Serialize)]
+pub struct View {
+    pub plugin: String,
+    pub name: String,
+    /// It shows a status next to its name
+    pub status: bool,
+    pub frame: FrameInfo,
+}
+
+/// The views of the working plugins, in the plugins' order
+pub fn views(plugins: &[Plugin]) -> Vec<View> {
+    plugins
+        .iter()
+        .filter(|p| p.works())
+        .filter_map(|p| {
+            let m = p.manifest.as_ref()?;
+            let v = m.view.as_ref()?;
+            Some(View { plugin: m.id.clone(), name: v.name.clone(), status: v.status, frame: frame_info(plugins, &m.id, "view", "").ok()? })
+        })
+        .collect()
+}
+
+/// A panel on the right
+#[derive(Serialize)]
+pub struct PanelInfo {
+    pub plugin: String,
+    pub id: String,
+    pub name: String,
+    /// "project" or "app"
+    pub scope: String,
+    /// null: its page's height (up to half the column); a number of lines
+    pub lines: Option<u32>,
+    pub frame: FrameInfo,
+}
+
+/// The panels a project shows: app-wide ones, and project ones of plugins that apply to it;
+/// in the plugins' order
+pub fn panels(plugins: &[Plugin], project: Option<&Path>) -> Vec<PanelInfo> {
+    plugins
+        .iter()
+        .filter(|p| p.works())
+        .filter_map(|p| p.manifest.as_ref())
+        .flat_map(|m| {
+            let applies = project.is_some_and(|dir| applies(m, dir));
+            m.panels.iter().filter(move |x| x.scope == "app" || applies).filter_map(|x| {
+                Some(PanelInfo {
+                    plugin: m.id.clone(),
+                    id: x.id.clone(),
+                    name: x.name.clone(),
+                    scope: x.scope.clone(),
+                    lines: match x.height {
+                        manifest::Height::Lines(n) => Some(n),
+                        manifest::Height::Word(_) => None,
+                    },
+                    frame: frame_info(plugins, &m.id, "panel", &x.id).ok()?,
+                })
+            })
+        })
+        .collect()
+}
+
+/// When a linked plugin's files last changed (the newest file in its folder; its node_modules
+/// and .git aren't looked at)
+pub fn changed_at(folder: &Path) -> Option<std::time::SystemTime> {
+    let mut newest = None;
+    let mut dirs = vec![folder.to_path_buf()];
+    let mut seen = 0;
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(&dir).ok()?.flatten() {
+            let name = e.file_name();
+            if name == "node_modules" || name == ".git" {
+                continue;
+            }
+            let Ok(meta) = e.metadata() else { continue };
+            if meta.is_dir() {
+                dirs.push(e.path());
+            } else if let Ok(t) = meta.modified() {
+                newest = newest.max(Some(t));
+            }
+            seen += 1;
+            if seen > 5000 {
+                return newest; // a huge folder: enough to go by
+            }
+        }
+    }
+    newest
 }
 
 /// A plugin's tab that can be added to a project ("<plugin>:<tab>")

@@ -249,5 +249,16 @@
     escape: (text) => String(text).replace(/[&<>"']/g, (c) => escapes[c]),
   });
 
+  // The page's height, for a panel that's as tall as its content
+  let lastHeight = 0;
+  const measure = () => {
+    const h = Math.ceil(document.documentElement.scrollHeight);
+    if (h !== lastHeight) post({ kind: "height", px: (lastHeight = h) });
+  };
+  addEventListener("load", () => {
+    measure();
+    if (typeof ResizeObserver === "function") new ResizeObserver(measure).observe(document.body ?? document.documentElement);
+  });
+
   post({ kind: "ready" });
 })();

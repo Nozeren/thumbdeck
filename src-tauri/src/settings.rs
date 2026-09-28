@@ -30,6 +30,8 @@ pub struct Settings {
     pub plugins: Vec<crate::plugins::install::Installed>,
     /// Each plugin's settings, by plugin id
     pub plugin_settings: HashMap<String, serde_json::Value>,
+    /// The official plugins were offered (the first start with plugins)
+    pub catalog_offered: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -85,6 +87,15 @@ pub fn add_plugin(s: &mut Settings, plugin: crate::plugins::install::Installed) 
     }
 }
 
+/// Move a plugin earlier (-1) or later (1) in the list: its panels follow that order
+pub fn move_plugin(s: &mut Settings, id: &str, by: isize) {
+    let Some(i) = s.plugins.iter().position(|p| p.id == id) else { return };
+    let j = i as isize + by;
+    if j >= 0 && (j as usize) < s.plugins.len() {
+        s.plugins.swap(i, j as usize);
+    }
+}
+
 /// Forget a plugin, its settings and its tabs
 pub fn remove_plugin(s: &mut Settings, id: &str) {
     s.plugins.retain(|p| p.id != id);
@@ -110,7 +121,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 }
 
@@ -190,7 +201,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 
     #[test]
@@ -288,8 +299,13 @@ mod tests {
         add_plugin(&mut s, p("a", "v2.0.0"));
         assert_eq!(s.plugins.iter().map(|p| (p.id.as_str(), p.tag.as_deref().unwrap())).collect::<Vec<_>>(), [("a", "v2.0.0"), ("b", "v1.0.0")]);
         s.plugin_settings.insert("a".into(), serde_json::json!({ "n": 1 }));
+        add_plugin(&mut s, p("c", "v1.0.0"));
+        move_plugin(&mut s, "c", -1);
+        move_plugin(&mut s, "a", -1);
+        move_plugin(&mut s, "b", 5);
+        assert_eq!(s.plugins.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["a", "c", "b"], "a was first already; 5 is out of range");
         remove_plugin(&mut s, "a");
-        assert_eq!(s.plugins.len(), 1);
+        assert_eq!(s.plugins.len(), 2);
         assert!(s.plugin_settings.is_empty());
     }
 

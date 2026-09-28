@@ -504,13 +504,13 @@ impl Manifest {
         }
         let names = |list: Vec<&str>| list.join(", ");
         if !self.tabs.is_empty() {
-            out.push(format!("tab{}: {}", plural(self.tabs.len()), names(self.tabs.iter().map(|t| t.name.as_str()).collect())));
+            out.push(format!("{}: {}", if self.tabs.len() == 1 { "a tab" } else { "tabs" }, names(self.tabs.iter().map(|t| t.name.as_str()).collect())));
         }
         if !self.panels.is_empty() {
-            out.push(format!("panel{} on the right: {}", plural(self.panels.len()), names(self.panels.iter().map(|p| p.name.as_str()).collect())));
+            out.push(format!("{} on the right: {}", if self.panels.len() == 1 { "a panel" } else { "panels" }, names(self.panels.iter().map(|p| p.name.as_str()).collect())));
         }
         if !self.pages.is_empty() {
-            out.push(format!("{} full-window page{}", self.pages.len(), plural(self.pages.len())));
+            out.push(if self.pages.len() == 1 { "a full-window page".into() } else { format!("{} full-window pages", self.pages.len()) });
         }
         if let Some(v) = &self.view {
             out.push(format!("a view in the Plugins pane: {}", v.name));

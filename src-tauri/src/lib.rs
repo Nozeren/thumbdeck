@@ -266,10 +266,13 @@ async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<p
     let s = settings::load(&app);
     let p = s.plugins.iter().find(|p| p.id == id).cloned().ok_or_else(|| format!("no plugin {id}"))?;
     // Its backend starts again from the new state when next needed
-    app.state::<plugins::backend::Backends>().stop(&id);
-    forget_backend_actions(&id);
+    if change != "up" && change != "down" {
+        app.state::<plugins::backend::Backends>().stop(&id);
+        forget_backend_actions(&id);
+    }
     let s = match change.as_str() {
         "enable" | "disable" => settings::update(&app, |s| settings::add_plugin(s, plugins::install::Installed { enabled: change == "enable", ..p }))?,
+        "up" | "down" => settings::update(&app, |s| settings::move_plugin(s, &id, if change == "up" { -1 } else { 1 }))?,
         "update" => {
             let updated = plugins::install::update(&p, &plugins_dir()?)?;
             settings::update(&app, |s| settings::add_plugin(s, updated))?
@@ -280,7 +283,7 @@ async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<p
         }
         _ => return Err(format!("can't {change} a plugin")),
     };
-    if change != "remove" && change != "disable" {
+    if change == "enable" || change == "update" {
         autostart_backends(&app, Some(&id));
     }
     Ok(plugin_infos(&s))
@@ -484,6 +487,77 @@ fn plugin_refresh_actions(plugin: String) {
     forget_backend_actions(&plugin);
 }
 
+/// What a frame of a plugin's panel, page or view needs
+#[tauri::command]
+async fn plugin_frame(app: AppHandle, plugin: String, surface: String, id: String) -> Result<plugins::FrameInfo, String> {
+    plugins::frame_info(&plugins::load(&settings::load(&app).plugins), &plugin, &surface, &id)
+}
+
+/// The plugins' views, for the Plugins pane
+#[tauri::command]
+async fn plugin_views(app: AppHandle) -> Vec<plugins::View> {
+    plugins::views(&plugins::load(&settings::load(&app).plugins))
+}
+
+/// The panels on the right for a project (or none selected)
+#[tauri::command]
+async fn plugin_panels(app: AppHandle, path: Option<String>) -> Vec<plugins::PanelInfo> {
+    plugins::panels(&plugins::load(&settings::load(&app).plugins), path.as_deref().map(Path::new))
+}
+
+/// The official plugins, and whether the first start offered them already
+#[derive(Serialize)]
+struct CatalogAnswer {
+    plugins: Vec<plugins::catalog::Entry>,
+    offered: bool,
+}
+
+#[tauri::command]
+async fn plugin_catalog(app: AppHandle) -> Result<CatalogAnswer, String> {
+    let offered = settings::load(&app).catalog_offered;
+    let plugins = tauri::async_runtime::spawn_blocking(plugins::catalog::load).await.map_err(|e| e.to_string())??;
+    Ok(CatalogAnswer { plugins, offered })
+}
+
+/// The first start's offer was answered (it isn't made again)
+#[tauri::command]
+async fn plugin_catalog_offered(app: AppHandle) -> Result<(), String> {
+    settings::update(&app, |s| s.catalog_offered = true).map(|_| ())
+}
+
+/// The web inspector, to look into plugin pages (Settings › Plugins › Inspect)
+#[tauri::command]
+fn open_devtools(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        w.open_devtools();
+    }
+}
+
+/// Linked plugins (folders you're working on) are looked at every second or so: when their
+/// files change, their backend stops (it starts again when needed) and the page reloads their
+/// frames
+fn watch_linked_plugins(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut seen: HashMap<String, Option<std::time::SystemTime>> = HashMap::new();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            let s = settings::load(&app);
+            for p in s.plugins.iter().filter(|p| p.linked && p.enabled) {
+                let now = plugins::changed_at(std::path::Path::new(&p.source));
+                match seen.insert(p.id.clone(), now) {
+                    Some(before) if before != now => {
+                        app.state::<plugins::backend::Backends>().stop(&p.id);
+                        forget_backend_actions(&p.id);
+                        let _ = app.emit("plugin-changed", &p.id);
+                        autostart_backends(&app, Some(&p.id));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+}
+
 /// A line for a plugin's log (its page's console)
 #[tauri::command]
 fn plugin_log(logs: State<'_, plugins::log::Logs>, plugin: String, level: String, text: String) {
@@ -613,12 +687,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
+            plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, open_devtools,
             check_update, install_update, restart, readme_image,
             branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
             watch_for_updates(app.handle().clone());
             watch_plugin_updates(app.handle().clone());
+            watch_linked_plugins(app.handle().clone());
             let handle = app.handle().clone();
             std::thread::spawn(move || autostart_backends(&handle, None));
             Ok(())
