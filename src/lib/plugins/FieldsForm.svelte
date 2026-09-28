@@ -42,6 +42,9 @@
         </select>
       {:else if f.type === "text" && f.multiline}
         <textarea rows="4" bind:value={values[f.key]}></textarea>
+      {:else if f.type === "json"}
+        <textarea rows="5" class="json" value={JSON.stringify(values[f.key], null, 2)}
+                  oninput={(e) => { try { values[f.key] = JSON.parse(e.currentTarget.value); e.currentTarget.classList.remove("bad"); } catch { e.currentTarget.classList.add("bad"); } }}></textarea>
       {:else if f.type === "folder" || f.type === "file"}
         <span class="row">
           <input bind:value={values[f.key]} />
@@ -65,5 +68,6 @@
   }
   .field input:focus, input[type="number"]:focus, select:focus { border-color: var(--orange); }
   .small { padding: 5px 10px; }
+  :global(textarea.json.bad) { border-color: var(--red) !important; }
   .add { align-self: flex-start; }
 </style>

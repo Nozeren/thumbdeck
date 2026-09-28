@@ -1,5 +1,4 @@
 mod branch;
-mod extensions;
 mod plugins;
 mod projects;
 mod runner;
@@ -24,7 +23,7 @@ struct Details {
     /// Plugins whose buttons couldn't be worked out, and why
     problems: Vec<String>,
     readme: Option<String>,
-    /// Extension tabs turned on for the project
+    /// The plugin tabs turned on for the project
     tabs: Vec<TabInfo>,
 }
 
@@ -32,26 +31,23 @@ struct Details {
 struct TabInfo {
     title: String,
     #[serde(flatten)]
-    tab: extensions::Tab,
-    /// A plugin's tab: its frame
+    tab: plugins::PluginTab,
+    /// Its frame, when its plugin works
     #[serde(skip_serializing_if = "Option::is_none")]
     frame: Option<plugins::FrameInfo>,
-    /// A plugin's tab that can't show, and why
+    /// Why it can't show (its plugin is off, broken or gone)
     #[serde(skip_serializing_if = "Option::is_none")]
     missing: Option<String>,
 }
 
-fn tab_info(t: &extensions::Tab, loaded: &[plugins::Plugin]) -> TabInfo {
-    let Some(plugin) = &t.plugin else {
-        return TabInfo { title: t.title(), tab: t.complete(), frame: None, missing: None };
-    };
-    match plugins::tab_frame(loaded, plugin, &t.extension, &t.setup) {
+fn tab_info(t: &plugins::PluginTab, loaded: &[plugins::Plugin]) -> TabInfo {
+    match plugins::tab_frame(loaded, &t.plugin, &t.tab, &t.setup) {
         Ok((frame, setup)) => {
             let title = setup["title"].as_str().unwrap_or(&frame.name).to_string();
-            TabInfo { title, tab: extensions::Tab { setup, ..t.clone() }, frame: Some(frame), missing: None }
+            TabInfo { title, tab: plugins::PluginTab { setup, ..t.clone() }, frame: Some(frame), missing: None }
         }
         Err(why) => {
-            let title = t.setup.get("title").and_then(|v| v.as_str()).unwrap_or(&t.extension).to_string();
+            let title = t.setup.get("title").and_then(|v| v.as_str()).unwrap_or(&t.tab).to_string();
             TabInfo { title, tab: t.clone(), frame: None, missing: Some(why) }
         }
     }
@@ -89,7 +85,7 @@ fn details(app: &AppHandle, path: &str) -> Details {
         hidden,
         problems,
         readme: projects::readme(Path::new(path)),
-        tabs: s.extensions.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
+        tabs: s.tabs.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
     }
 }
 
@@ -204,33 +200,25 @@ async fn run_in_tmux(path: String, name: String, window: String, command: String
     terminal::run_in_window(&path, &name, &window, &command)
 }
 
-/// The tabs a project can have: the built-in extensions, then the plugins' tabs
+/// The plugin tabs a project can have
 #[tauri::command]
 async fn tabs_available(app: AppHandle, path: String) -> Vec<plugins::Addable> {
-    let builtin = extensions::AVAILABLE.iter().map(|e| plugins::Addable { id: e.id.into(), name: e.name.into(), description: e.description.into() });
-    let loaded = plugins::load(&settings::load(&app).plugins);
-    builtin.chain(plugins::addable_tabs(&loaded, Path::new(&path))).collect()
+    plugins::addable_tabs(&plugins::load(&settings::load(&app).plugins), Path::new(&path))
 }
 
-/// A new tab, with its default setup (not saved yet): a built-in extension ("logs") or a
-/// plugin's tab ("plugin:<plugin>:<tab>", with its frame info for the setup form)
+/// A new tab ("<plugin>:<tab>") with its default setup and frame info, not saved yet
 #[tauri::command]
-async fn new_tab(app: AppHandle, extension: String) -> Result<TabInfo, String> {
+async fn new_tab(app: AppHandle, id: String) -> Result<TabInfo, String> {
     let loaded = plugins::load(&settings::load(&app).plugins);
-    let tab = match extension.strip_prefix("plugin:").and_then(|r| r.split_once(':')) {
-        Some((plugin, tab)) => {
-            let (_, setup) = plugins::tab_frame(&loaded, plugin, tab, &serde_json::Value::Null)?;
-            extensions::Tab { extension: tab.into(), plugin: Some(plugin.into()), setup }
-        }
-        None => extensions::Tab::new(&extension).ok_or_else(|| format!("no extension {extension}"))?,
-    };
-    Ok(tab_info(&tab, &loaded))
+    let (plugin, tab) = id.split_once(':').ok_or_else(|| format!("no tab {id}"))?;
+    let (_, setup) = plugins::tab_frame(&loaded, plugin, tab, &serde_json::Value::Null)?;
+    Ok(tab_info(&plugins::PluginTab { plugin: plugin.into(), tab: tab.into(), setup }, &loaded))
 }
 
-/// Turn an extension on for a project ("add"), save a tab's setup ("save") or turn it off
-/// ("remove"); returns the new details.
+/// Add a tab to a project ("add"), save a tab's setup ("save") or remove it ("remove");
+/// returns the new details.
 #[tauri::command]
-async fn edit_tab(app: AppHandle, path: String, change: String, index: usize, tab: Option<extensions::Tab>) -> Result<Details, String> {
+async fn edit_tab(app: AppHandle, path: String, change: String, index: usize, tab: Option<plugins::PluginTab>) -> Result<Details, String> {
     settings::update(&app, |s| settings::edit_tab(s, &path, &change, index, tab))?;
     Ok(details(&app, &path))
 }
@@ -558,45 +546,6 @@ pub fn cli() -> Option<i32> {
     }
 }
 
-// ------------------------------------------------------------ logs extension
-
-use extensions::logs;
-
-/// What's wrong with a setup (empty when it's fine)
-#[tauri::command]
-fn logs_check(setup: logs::Setup) -> Vec<String> {
-    setup.problems()
-}
-
-#[derive(Serialize)]
-struct LogList {
-    files: Vec<logs::files::LogFile>,
-    /// Log folders that don't exist
-    missing: Vec<String>,
-}
-
-#[tauri::command]
-async fn logs_list(path: String, setup: logs::Setup) -> LogList {
-    let (files, missing) = logs::files::list(Path::new(&path), &setup);
-    LogList { files, missing }
-}
-
-#[tauri::command]
-async fn logs_open(file: String, setup: logs::Setup) -> Result<logs::files::Log, String> {
-    logs::files::open(Path::new(&file), &setup)
-}
-
-#[tauri::command]
-async fn logs_summary(file: String, setup: logs::Setup) -> Result<logs::files::Summary, String> {
-    logs::files::summary(Path::new(&file), &setup)
-}
-
-/// A log's size, to notice it growing (live tail)
-#[tauri::command]
-fn logs_size(file: String) -> Option<u64> {
-    std::fs::metadata(file).ok().map(|m| m.len())
-}
-
 // ------------------------------------------------------------ the status line
 
 /// The project's branch and how many files changed, for the status line
@@ -663,8 +612,8 @@ pub fn run() {
             plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
         })
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
-            tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab, logs_check, logs_list, logs_open,
-            logs_summary, logs_size, check_update, install_update, restart, readme_image,
+            tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
+            check_update, install_update, restart, readme_image,
             branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {

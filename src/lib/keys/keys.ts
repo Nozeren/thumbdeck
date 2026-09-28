@@ -78,6 +78,4 @@ export const MOVE = [
   bind("g", "first", "first"),
   bind("G", "last", "last"),
 ];
-export const LEAVE = bind(["q", "Escape"], "leave", "give the keyboard back to thumbdeck");
 export const HELP = bind("?", "help", "all keys");
-export const SETUP = bind("S", "setup", "set up this tab");

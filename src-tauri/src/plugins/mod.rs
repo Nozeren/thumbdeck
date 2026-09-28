@@ -20,6 +20,17 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// A plugin's tab turned on for a project, as saved in the settings
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct PluginTab {
+    pub plugin: String,
+    /// The tab's id in the plugin's manifest
+    pub tab: String,
+    /// Its setup (the fields the plugin declares, and its title)
+    #[serde(default)]
+    pub setup: Value,
+}
+
 /// An installed plugin with its manifest, when it could be read
 pub struct Plugin {
     pub installed: Installed,
@@ -122,8 +133,7 @@ pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> 
     Ok((info, setup))
 }
 
-/// A tab that can be added to a project: a built-in extension ("logs") or a plugin's tab
-/// ("plugin:<plugin>:<tab>")
+/// A plugin's tab that can be added to a project ("<plugin>:<tab>")
 #[derive(Serialize)]
 pub struct Addable {
     pub id: String,
@@ -140,7 +150,7 @@ pub fn addable_tabs(plugins: &[Plugin], project: &Path) -> Vec<Addable> {
         .filter(|m| applies(m, project))
         .flat_map(|m| {
             m.tabs.iter().map(|t| Addable {
-                id: format!("plugin:{}:{}", m.id, t.id),
+                id: format!("{}:{}", m.id, t.id),
                 name: t.name.clone(),
                 description: if t.description.is_empty() { m.description.clone() } else { t.description.clone() },
             })

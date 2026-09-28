@@ -347,12 +347,15 @@ help = "Relative to the project folder"
 | `list` | array of strings | one text field per entry, with add and remove |
 | `folder`, `file` | string | a text field with a Browse button |
 | `folders`, `files` | array of strings | a list of those |
+| `json` | any JSON value | a text area with JSON (for values a form can't hold: a list of rules, …) |
 
 Every field takes `label`, `default` and `help`. Every tab setup also has a `title` field,
 added by thumbdeck. A setup saved by an older version of the plugin gets new fields' defaults.
 If the form can't express what a tab needs, the tab can take the setup into its own hands:
-`[[tab]] setup_page = "setup.html"` shows that page instead of the form, and it saves with
-`thumbdeck.setup.save(value)`.
+`[[tab]] setup_page = "setup.html"` shows that page in thumbdeck's setup dialog instead of the
+form (thumbdeck adds Cancel and Remove), and it saves with `thumbdeck.setup.save(value)`; the
+page has the title field too. Its `[[tab.setup]]` fields still give the defaults and fill in
+what an older setup lacks (`json` fields for nested values).
 
 ## The page API (`window.thumbdeck`)
 

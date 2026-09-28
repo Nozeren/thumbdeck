@@ -22,8 +22,8 @@ pub struct Settings {
     pub custom: HashMap<String, Vec<CustomAction>>,
     /// Detected actions you hid, per project path (action ids like "django:shell")
     pub hidden_actions: HashMap<String, Vec<String>>,
-    /// Extension tabs turned on, per project path
-    pub extensions: HashMap<String, Vec<crate::extensions::Tab>>,
+    /// Plugin tabs turned on, per project path
+    pub tabs: HashMap<String, Vec<crate::plugins::PluginTab>>,
     /// The character in the top bar ("octopus", "crab", ...; empty: the octopus; "none": none)
     pub avatar: String,
     /// Installed plugins, in the order they were installed
@@ -60,10 +60,10 @@ pub fn save_action(s: &mut Settings, project: String, mut action: CustomAction) 
     }
 }
 
-/// Turn an extension on for a project (a second tab of the same extension is allowed),
-/// save its setup, or turn it off. `index` is the tab's position among the project's tabs.
-pub fn edit_tab(s: &mut Settings, project: &str, change: &str, index: usize, tab: Option<crate::extensions::Tab>) {
-    let tabs = s.extensions.entry(project.to_string()).or_default();
+/// Add a plugin's tab to a project (the same tab twice is allowed, with other setups), save its
+/// setup, or remove it. `index` is the tab's position among the project's tabs.
+pub fn edit_tab(s: &mut Settings, project: &str, change: &str, index: usize, tab: Option<crate::plugins::PluginTab>) {
+    let tabs = s.tabs.entry(project.to_string()).or_default();
     match (change, tab) {
         ("add", Some(tab)) => tabs.push(tab),
         ("save", Some(tab)) if index < tabs.len() => tabs[index] = tab,
@@ -73,7 +73,7 @@ pub fn edit_tab(s: &mut Settings, project: &str, change: &str, index: usize, tab
         _ => {}
     }
     if tabs.is_empty() {
-        s.extensions.remove(project);
+        s.tabs.remove(project);
     }
 }
 
@@ -85,10 +85,14 @@ pub fn add_plugin(s: &mut Settings, plugin: crate::plugins::install::Installed) 
     }
 }
 
-/// Forget a plugin and its settings
+/// Forget a plugin, its settings and its tabs
 pub fn remove_plugin(s: &mut Settings, id: &str) {
     s.plugins.retain(|p| p.id != id);
     s.plugin_settings.remove(id);
+    for tabs in s.tabs.values_mut() {
+        tabs.retain(|t| t.plugin != id);
+    }
+    s.tabs.retain(|_, tabs| !tabs.is_empty());
 }
 
 pub fn delete_action(s: &mut Settings, project: &str, id: &str) {
@@ -106,7 +110,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
     }
 }
 
@@ -186,7 +190,7 @@ mod tests {
     use super::*;
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), extensions: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new() }
     }
 
     #[test]
@@ -249,19 +253,28 @@ mod tests {
     }
 
     #[test]
-    fn extension_tabs_are_added_saved_and_removed() {
+    fn plugin_tabs_are_added_saved_and_removed() {
         let mut s = empty();
-        let tab = crate::extensions::Tab::new("logs").unwrap();
+        let tab = crate::plugins::PluginTab { plugin: "logs".into(), tab: "logs".into(), setup: serde_json::json!({ "title": "Logs" }) };
         edit_tab(&mut s, "/p", "add", 0, Some(tab.clone()));
         let mut changed = tab.clone();
         changed.setup["title"] = "Runs".into();
         edit_tab(&mut s, "/p", "save", 0, Some(changed));
-        assert_eq!(s.extensions["/p"][0].title(), "Runs");
-        edit_tab(&mut s, "/p", "save", 5, Some(tab));
+        assert_eq!(s.tabs["/p"][0].setup["title"], "Runs");
+        edit_tab(&mut s, "/p", "save", 5, Some(tab.clone()));
         edit_tab(&mut s, "/p", "remove", 3, None);
-        assert_eq!(s.extensions["/p"].len(), 1, "out of range changes do nothing");
+        assert_eq!(s.tabs["/p"].len(), 1, "out of range changes do nothing");
         edit_tab(&mut s, "/p", "remove", 0, None);
-        assert!(!s.extensions.contains_key("/p"), "empty projects are dropped");
+        assert!(!s.tabs.contains_key("/p"), "empty projects are dropped");
+        edit_tab(&mut s, "/q", "add", 0, Some(tab));
+        remove_plugin(&mut s, "logs");
+        assert!(s.tabs.is_empty(), "removing a plugin takes its tabs");
+    }
+
+    #[test]
+    fn tabs_saved_by_older_thumbdecks_are_dropped() {
+        let s: Settings = serde_json::from_str(r#"{"extensions": {"/p": [{"extension": "logs", "setup": {}}]}}"#).unwrap();
+        assert!(s.tabs.is_empty());
     }
 
     #[test]

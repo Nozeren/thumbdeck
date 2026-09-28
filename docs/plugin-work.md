@@ -5,10 +5,11 @@ first when you're back.
 
 ## Where it stands
 
-Steps 1 to 3 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
-frames with the whole page API, plugins can have a backend, and Git and the old packs (Django,
-Python, npm, …) are plugins; the pack code is gone. Step 4 (Logs, Agents and Pull requests as
-plugins) is next.
+Steps 1 to 4 are done: plugins are installed and managed in Settings (`,`), plugin tabs run in
+frames with the whole page API, plugins can have a backend, and every tab thumbdeck had (Git,
+Pull requests, Agents, Logs) and every pack (Django, Python, npm, …) is a plugin now; the
+built-in extensions and the pack code are gone. Step 5 (the Plugins pane, panels, pages, the
+first-run screen) is next.
 
 ## How I work
 
@@ -176,6 +177,13 @@ while testing, and the first-run catalog is read from the local checkout
 28. **`.taurignore` leaves out the plugins repo**: editing a plugin no longer restarts the dev
     app. (A frame in the unfocused dev window sometimes didn't repaint until a key was pressed;
     the page itself was right. Worth watching; I couldn't reproduce it with the window in front.)
+29. **Logs in Node is faster than it was in Rust**: a 200,000-line JSON log (35 MB) reads in
+    0.7–0.8 s in Node against 1.3 s in Rust (the JSON sent to the page: about 130 ms either way).
+30. **`setup_page` and a `json` field type** (both new in the spec for Logs): its sections
+    can't be a drawn form. The page shows in thumbdeck's setup dialog and gets the focus.
+31. **Plugin tabs are saved as `tabs: { plugin, tab, setup }`** in settings.json; the old
+    `extensions` list is dropped when thumbdeck saves (as decided: old tabs start fresh).
+    Removing a plugin removes its tabs.
 
 ## Log
 
@@ -234,3 +242,23 @@ while testing, and the first-run catalog is read from the local checkout
   buttons show (without holding up the Toolkit), its tab lists them through the backend, a
   task run from the tab streams its output there and shows in Running, the backend's event
   arrives; closing the app stops the backend.
+
+### Step 4: Pull requests, Agents and Logs as plugins
+
+- The avatar hears plugins (`td.ui.mood` from frames and backends, added up); the page's own
+  Claude polling is gone.
+- `plugins/prs` (plain JS, `gh`; its demo data in `testdata/`), `plugins/agents` (Svelte UI, a
+  Node backend reading Claude Code's files, `autostart` for the avatar), `plugins/logs` (Svelte
+  viewer and setup page, a Node backend with the parser, sections and outline). Their Rust and
+  Svelte tests were ported to `node --test` (the plugins repo: `npm test`, 50 tests).
+- The plugins repo can build Svelte pages: `npm run build` (Vite), into each plugin's `dist/`.
+- thumbdeck: `setup_page`, the `json` field type, `td.tmux(…, { show })`, `[backend] autostart`,
+  frames may use the clipboard. `src/lib/extensions`, `src-tauri/src/extensions`, their
+  commands and keymaps are gone.
+- Tested: `cargo test` (70), `npm test` (19), `svelte-check`, the plugins repo's tests (50),
+  `plugin check` on each. In the dev app: PRs (demo repo: list, details, review page from its
+  test diff), Agents (this repo's real sessions, a conversation, keys switching keymaps), Logs
+  (files and preview, a log, an entry, back, its setup page in the dialog).
+- Not driven in the dev app: typing into a setup page (my test keys can't reach a field
+  inside a frame while the window isn't the active one); saving from it is a short path
+  (`td.setup.save` → the page's save). Worth a click when you try it.

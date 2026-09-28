@@ -5,12 +5,11 @@
   import { marked } from "marked";
   import { onMount, tick, untrack } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
-  import type { Action, CustomAction, Details, Extension, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
-  import type { Host } from "$lib/plugins/types";
+  import type { Action, Addable, CustomAction, Details, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
+  import type { Host, TabExports } from "$lib/plugins/types";
   import PluginFrame from "$lib/plugins/PluginFrame.svelte";
   import PluginSetupForm from "$lib/plugins/PluginSetupForm.svelte";
   import { getVersion } from "@tauri-apps/api/app";
-  import { extensions, type TabExports } from "$lib/extensions";
   import Avatar from "$lib/avatar/Avatar.svelte";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import StatusBar from "$lib/StatusBar.svelte";
@@ -19,7 +18,6 @@
   import { DIALOG, FILTER, MAIN, REVIEW, TOOLKIT } from "$lib/keys/maps";
   import type { ReviewRequest } from "$lib/review/types";
   import { combine, pickMood } from "$lib/avatar/mood";
-  import { avatarSignals } from "$lib/avatar/signals.svelte";
 
   let projects = $state<Project[]>([]);
   let roots = $state<string[]>([]);
@@ -59,12 +57,11 @@
     if (keysToTab && centerEl && !centerEl.contains(e.target as Node)) keysToTab = false;
   }
   // ------------------------------------------------------------ extension tabs
-  let available = $state<Extension[]>([]);
-  // Extension tab shown in the center (its index in details.tabs); null: README or a run
+  let available = $state<Addable[]>([]);
+  // Plugin tab shown in the center (its index in details.tabs); null: README or a run
   let shownTab = $state<number | null>(null);
   // The shown tab has the keyboard (a click in it, or its number key); Esc gives it back
   let keysToTab = $state(false);
-  let tabRef = $state<TabExports | null>(null);
   // The center takes the whole window (z): more room for a log, a README, a run's output
   let wide = $state(false);
   let tabMenu = $state(false);
@@ -81,14 +78,14 @@
   let frameRefs = $state<Record<string, TabExports | null>>({});
   let badges = $state<Record<string, string | null>>({});
   let version = $state("");
-  const frameKeyOf = (path: string, i: number, t: Tab) => `${path}|${i}|${t.plugin}:${t.extension}`;
+  const frameKeyOf = (path: string, i: number, t: Tab) => `${path}|${i}|${t.plugin}:${t.tab}`;
   const shownFrameKey = $derived.by(() => {
     if (!tabShown || !selected || !details || shownTab === null) return null;
     const t = details.tabs[shownTab];
     return t?.frame ? frameKeyOf(selected.path, shownTab, t) : null;
   });
-  // The shown tab's keys: a plugin frame's, or a built-in tab's
-  const activeTab = $derived(shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : tabRef);
+  // The shown tab's keys
+  const activeTab = $derived(shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : null);
 
   // Start the shown plugin tab's frame, or mark it shown again
   $effect(() => {
@@ -151,10 +148,10 @@
     keysToTab = i !== null && keys;
   }
 
-  async function addTab(extension: string) {
+  async function addTab(id: string) {
     tabMenu = false;
     try {
-      setupForm = { index: null, tab: await invoke<TabInfo>("new_tab", { extension }) };
+      setupForm = { index: null, tab: await invoke<TabInfo>("new_tab", { id }) };
     } catch (err) {
       say(String(err), true);
     }
@@ -162,7 +159,7 @@
 
   async function openTabMenu() {
     tabMenu = !tabMenu;
-    if (tabMenu && selected) available = await invoke<Extension[]>("tabs_available", { path: selected.path });
+    if (tabMenu && selected) available = await invoke<Addable[]>("tabs_available", { path: selected.path });
   }
 
   async function saveTab(change: "add" | "save" | "remove", setup: unknown = null) {
@@ -171,7 +168,7 @@
     setupForm = null;
     details = await invoke<Details>("edit_tab", {
       path: selected.path, change, index: index ?? 0,
-      tab: setup === null ? null : { extension: tab.extension, plugin: tab.plugin, setup },
+      tab: setup === null ? null : { plugin: tab.plugin, tab: tab.tab, setup },
     });
     if (change === "add") showTab(details.tabs.length - 1);
     else if (change === "remove") showTab(null);
@@ -449,9 +446,6 @@
         plugins: combine([
           ...Object.values(pluginMoods),
           // The built-in tabs', until they're plugins too
-          {
-            reading: avatarSignals.logsReading > 0,
-          },
         ]),
         update: update?.version ?? null,
         lastInput,
@@ -727,7 +721,7 @@
       </nav>
       <div class="view">
       {#each liveFrames as f (f.key)}
-        <PluginFrame bind:this={frameRefs[f.key]} info={f.tab.frame!} frameKey={f.key} surface="tab" surfaceId={f.tab.extension}
+        <PluginFrame bind:this={frameRefs[f.key]} info={f.tab.frame!} frameKey={f.key} surface="tab" surfaceId={f.tab.tab}
                      project={f.project} setup={f.tab.setup} active={keysToTab && shownFrameKey === f.key}
                      visible={shownFrameKey === f.key && !current} thumbdeck={version} {host} {say}
                      onActivate={() => shownFrameKey === f.key && (keysToTab = true)} onRelease={() => (keysToTab = false)}
@@ -740,24 +734,10 @@
 {/each}{#if current.endedAt !== null}<span class={current.code === 0 ? "ok" : "err"}>{current.code === 0 ? "✓ finished" : `✗ exited with ${current.code}`} after {elapsed(current)}</span>{/if}</pre>
       {:else if tabShown && details && shownTab !== null}
         {@const t = details.tabs[shownTab]}
-        {@const ext = extensions[t.extension]}
-        {#if t.frame}
-          <!-- a plugin's tab: its frame is above, kept alive -->
-        {:else if t.missing}
+        {#if !t.frame}
+          <!-- (a working plugin's tab is its frame, above, kept alive) -->
           <div class="empty">
             <p>{t.missing}</p>
-            <button class="ghost" onclick={() => { setupForm = { index: shownTab, tab: t }; saveTab("remove"); }}>Remove this tab</button>
-          </div>
-        {:else if ext && !t.plugin}
-          {#key `${selected.path}:${shownTab}:${JSON.stringify(t.setup)}`}
-            <ext.tab bind:this={tabRef} path={selected.path} project={selected.name} setup={t.setup} active={keysToTab} {say}
-                     onActivate={() => (keysToTab = true)} onRelease={() => (keysToTab = false)}
-                     onEditSetup={() => (setupForm = { index: shownTab, tab: t })} openReview={(r) => (review = r)} />
-          {/key}
-        {:else}
-          <div class="empty">
-            <p>The "{t.extension}" tab isn't built in any more: it's a plugin now. Add the plugin in Settings (,) › Plugins,
-              then add its tab again.</p>
             <button class="ghost" onclick={() => { setupForm = { index: shownTab, tab: t }; saveTab("remove"); }}>Remove this tab</button>
           </div>
         {/if}
@@ -767,7 +747,7 @@
         <p class="empty">{details ? "No README in this project." : "Loading…"}</p>
       {/if}
       </div>
-      <!-- Tabs: README, the project's extension tabs, the runs you started (1, 2, …) -->
+      <!-- Tabs: README, the project's plugin tabs, the runs you started (1, 2, …) -->
       <nav class="tabbar">
         <div class="tabs">
         <button class="btab" class:on={shownRun === null && !tabShown} title="README (1)" onclick={() => showTab(null)}>
@@ -933,14 +913,14 @@
 {/if}
 
 {#if setupForm && selected}
-  {@const ext = extensions[setupForm.tab.extension]}
   {@const frame = setupForm.tab.frame}
-  {#if setupForm.tab.plugin && frame}
+  {#if frame}
     <PluginSetupForm name={frame.name} pluginName={frame.plugin_name} description="" fields={frame.fields} setup={setupForm.tab.setup}
-                     isNew={setupForm.index === null} project={selected.name}
+                     isNew={setupForm.index === null} project={selected.name} {frame} tabId={setupForm.tab.tab}
+                     projectInfo={{ path: selected.path, name: selected.name, branch: selected.branch }} {host} thumbdeck={version} {say}
                      onSave={(setup) => saveTab(setupForm?.index === null ? "add" : "save", setup)}
                      onRemove={() => saveTab("remove")} onCancel={() => (setupForm = null)} />
-  {:else if setupForm.tab.plugin}
+  {:else}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div class="backdrop" onclick={(e) => e.target === e.currentTarget && (setupForm = null)}>
       <div class="dialog">
@@ -951,10 +931,6 @@
         </div>
       </div>
     </div>
-  {:else if ext}
-    <ext.setup setup={setupForm.tab.setup} isNew={setupForm.index === null} project={selected.name}
-               onSave={(setup) => saveTab(setupForm?.index === null ? "add" : "save", setup)}
-               onRemove={() => saveTab("remove")} onCancel={() => (setupForm = null)} />
   {/if}
 {/if}
 

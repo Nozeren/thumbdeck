@@ -55,31 +55,31 @@ export interface Details {
   /** Toolkit packs that couldn't be used, and why */
   problems: string[];
   readme: string | null;
-  /** Extension tabs turned on for the project */
+  /** The plugin tabs turned on for the project */
   tabs: TabInfo[];
 }
 
-/** An extension that can be added to a project as a tab */
-export interface Extension {
+/** A plugin's tab that can be added to a project */
+export interface Addable {
+  /** "<plugin>:<tab>" */
   id: string;
   name: string;
   description: string;
 }
 
-/** An extension (or a plugin's tab) turned on for a project, with its setup */
+/** A plugin's tab turned on for a project, with its setup */
 export interface Tab {
-  /** A built-in extension's id, or the plugin's tab id */
-  extension: string;
-  /** The plugin the tab is from; absent for a built-in extension */
-  plugin?: string;
-  setup: any; // the extension's own (e.g. the Logs tab's Setup)
+  plugin: string;
+  /** The tab's id in the plugin's manifest */
+  tab: string;
+  setup: any; // the fields the plugin declares, and the title
 }
 
 export interface TabInfo extends Tab {
   title: string;
-  /** A plugin's tab: its frame */
+  /** Its frame, when its plugin works */
   frame?: import("./plugins/types.ts").FrameInfo;
-  /** A plugin's tab that can't show, and why */
+  /** Why it can't show (its plugin is off, broken or gone) */
   missing?: string;
 }
 

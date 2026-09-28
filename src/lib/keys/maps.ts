@@ -1,6 +1,6 @@
 // Every place's keys, in one file: one look shows them all. The handlers switch on the
 // actions; the ? help is drawn from these lists and the status bar names who has the keyboard. Changing a key: here only.
-import { bind, HELP, LEAVE, MOVE, SETUP, type Keymap } from "./keys.ts";
+import { bind, HELP, MOVE, type Keymap } from "./keys.ts";
 
 // ------------------------------------------------------------ the main page
 export const MAIN: Keymap = {
@@ -71,60 +71,4 @@ export const REVIEW_FILES: Keymap = {
   ],
 };
 
-// ------------------------------------------------------------ Logs tab
-export const LOGS_FILES: Keymap = {
-  name: "LOGS",
-  bindings: [...MOVE, bind(["l", "Enter"], "open", "open the log"), bind("r", "refresh", "look for logs again"), SETUP, LEAVE, HELP],
-};
-
-export const LOGS: Keymap = {
-  name: "LOG",
-  bindings: [
-    ...MOVE,
-    bind(["l", "Enter", "Space", "ArrowRight"], "open", "open a section / a line's full entry"),
-    bind(["h", "ArrowLeft"], "close", "close a section (on a line: its section)"),
-    bind(["d", "Ctrl+d"], "page-down", "half a page down"),
-    bind(["u", "Ctrl+u"], "page-up", "half a page up"),
-    bind(["Ctrl+f", "PageDown"], "full-down", "a page down"),
-    bind(["Ctrl+b", "PageUp"], "full-up", "a page up"),
-    bind(["e", "E"], "error", "next / previous ERROR"),
-    bind("/", "search", "search"),
-    bind(["n", "N"], "match", "next / previous match"),
-    bind("t", "tail", "live tail on / off"),
-    bind("f", "levels", "show / hide levels: then D I W E, or A for all"),
-    bind(["y", "Y"], "copy", "copy the message (a section: its title) / the entry as JSON"),
-    bind("r", "refresh", "read the log again"),
-    bind(["Backspace", "-"], "back", "back to the files"),
-    SETUP,
-    LEAVE,
-    HELP,
-  ],
-};
-
-/** After f in a log */
-export const LOGS_LEVELS: Keymap = {
-  name: "LEVELS",
-  bindings: [
-    bind("D", "DEBUG", "show / hide DEBUG"),
-    bind("I", "INFO", "show / hide INFO"),
-    bind("W", "WARNING", "show / hide WARNING"),
-    bind("E", "ERROR", "show / hide ERROR"),
-    bind("A", "all", "show all"),
-    bind("Escape", "leave", "never mind"),
-  ],
-};
-
-/** A line's full entry */
-export const LOGS_ENTRY: Keymap = {
-  name: "ENTRY",
-  bindings: [
-    ...MOVE,
-    bind(["l", "Enter", "Space"], "open", "open / close a value"),
-    bind("h", "close", "close (on a value: its parent)"),
-    bind(["y", "Y"], "copy", "copy the value / the whole entry"),
-    bind(["q", "Escape", "Backspace"], "leave", "close the entry"),
-    HELP,
-  ],
-};
-
-export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, LOGS_FILES, LOGS, LOGS_LEVELS, LOGS_ENTRY];
+export const ALL: Keymap[] = [MAIN, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES];

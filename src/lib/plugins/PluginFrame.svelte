@@ -14,7 +14,7 @@
   import { frameUrl } from "./frame.ts";
 
   let { info, frameKey, surface, surfaceId, project, setup, active, visible, thumbdeck, host,
-        say, onActivate, onRelease, onEditSetup, openReview }: {
+        say, onActivate, onRelease, onEditSetup, openReview, onSaveSetup, page, autofocus = false }: {
     info: FrameInfo;
     /** Stable name of this frame in the page (for badges) */
     frameKey: string;
@@ -34,6 +34,12 @@
     onRelease: () => void;
     onEditSetup: () => void;
     openReview: (r: ReviewRequest) => void;
+    /** A setup page's frame: its setup.save */
+    onSaveSetup?: (setup: any) => void;
+    /** Another of the plugin's pages than info.page (a setup page) */
+    page?: string;
+    /** Take the focus when loaded (a setup page in a dialog) */
+    autofocus?: boolean;
   } = $props();
 
   let iframe = $state<HTMLIFrameElement | null>(null);
@@ -41,7 +47,7 @@
 
   // The page's address carries its context; it doesn't change while the frame lives
   // svelte-ignore state_referenced_locally
-  const src = frameUrl(info, { surface, id: surfaceId, project, api: 1, thumbdeck });
+  const src = frameUrl(page ? { ...info, page } : info, { surface, id: surfaceId, project, api: 1, thumbdeck });
 
   // ------------------------------------------------------------ talking to the frame
   // Plain copies: the page's state (a setup, say) is a proxy that can't be sent as it is
@@ -131,7 +137,9 @@
       case "projects.list": return host.projects();
       case "setup.get": return setup;
       case "setup.edit": return onEditSetup();
-      case "setup.save": throw new Error("setup.save is for a tab's setup_page");
+      case "setup.save":
+        if (!onSaveSetup) throw new Error("setup.save is for a tab's setup_page");
+        return onSaveSetup(p.value);
       case "run": {
         if (!project) throw new Error("this frame has no project to run in");
         const id = await host.startRun(project, p.command, p.label || p.command, info.plugin);
@@ -259,7 +267,8 @@
 </script>
 
 <div class="frame" class:active class:hidden={!visible}>
-  <iframe bind:this={iframe} {src} title={info.name}></iframe>
+  <iframe bind:this={iframe} {src} title={info.name} allow="clipboard-read; clipboard-write"
+          onload={() => autofocus && iframe?.focus()}></iframe>
   {#if help}<KeyHelp map={keymap()} note={info.plugin_name} />{/if}
 </div>
 

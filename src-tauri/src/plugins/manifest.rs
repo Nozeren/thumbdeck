@@ -199,7 +199,7 @@ impl From<ChoiceRaw> for Choice {
     }
 }
 
-const FIELD_TYPES: &[&str] = &["text", "number", "bool", "choice", "list", "folder", "file", "folders", "files"];
+const FIELD_TYPES: &[&str] = &["text", "number", "bool", "choice", "list", "folder", "file", "folders", "files", "json"];
 
 impl Field {
     /// The value it has when nothing was saved
@@ -209,6 +209,7 @@ impl Field {
             "bool" => Value::Bool(false),
             "choice" => self.choices.first().map(|c| Value::from(c.value.clone())).unwrap_or(Value::Null),
             "list" | "folders" | "files" => Value::Array(vec![]),
+            "json" => Value::Null,
             _ => Value::from(""),
         }
     }
@@ -224,6 +225,7 @@ impl Field {
             "bool" => v.is_boolean(),
             "list" | "folders" | "files" => v.as_array().is_some_and(|a| a.iter().all(|x| x.is_string())),
             "choice" => v.as_str().is_some_and(|s| self.choices.iter().any(|c| c.value == s)),
+            "json" => true,
             _ => v.is_string(),
         }
     }
@@ -752,12 +754,17 @@ key = "level"
 label = "Level"
 type = "choice"
 choices = ["info", { value = "warn", label = "Warnings" }]
+[[settings]]
+key = "rules"
+label = "Rules"
+type = "json"
+default = [{ name = "a" }]
 "#), &d.0).unwrap();
         assert_eq!(m.settings[2].choices[1], Choice { value: "warn".into(), label: "Warnings".into() });
         let full = complete(&m.settings, &Value::Null);
-        assert_eq!(full, serde_json::json!({ "minutes": 25, "folders": [], "level": "info" }));
-        let kept = complete(&m.settings, &serde_json::json!({ "minutes": 50, "level": "gone", "title": "Mine" }));
-        assert_eq!(kept, serde_json::json!({ "minutes": 50, "folders": [], "level": "info", "title": "Mine" }));
+        assert_eq!(full, serde_json::json!({ "minutes": 25, "folders": [], "level": "info", "rules": [{ "name": "a" }] }));
+        let kept = complete(&m.settings, &serde_json::json!({ "minutes": 50, "level": "gone", "title": "Mine", "rules": {} }));
+        assert_eq!(kept, serde_json::json!({ "minutes": 50, "folders": [], "level": "info", "title": "Mine", "rules": {} }), "json keeps any value");
     }
 
     #[test]

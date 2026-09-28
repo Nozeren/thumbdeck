@@ -73,6 +73,14 @@ export interface FrameInfo {
   setup_page: string | null;
 }
 
+/** What a plugin frame offers the page, for its keys */
+export interface TabExports {
+  /** A key while the frame has the keyboard (true: it was handled) */
+  handleKey(e: KeyboardEvent): boolean;
+  /** Its keys right now (for ? help, and its name in the status bar) */
+  keymap(): import("../keys/keys.ts").Keymap;
+}
+
 /** What a frame can ask of the page (the page's side of the API) */
 export interface Host {
   /** The projects in the list, and the selected one */
