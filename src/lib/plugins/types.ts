@@ -128,6 +128,18 @@ export interface PanelInfo {
   frame: FrameInfo;
 }
 
+/** A card in a project's Overview, from a plugin */
+export interface CardInfo {
+  plugin: string;
+  id: string;
+  name: string;
+  /** null: as tall as its page; else a number of lines */
+  lines: number | null;
+  /** The plugin's tab Enter shows (when the card's keys don't bind Enter) */
+  opens: string | null;
+  frame: FrameInfo;
+}
+
 /** An official plugin in the catalog */
 export interface CatalogEntry {
   id: string;

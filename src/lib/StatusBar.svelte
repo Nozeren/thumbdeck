@@ -41,6 +41,6 @@
   .yellow { color: var(--yellow); }
   .red { color: var(--red); }
   .spacer { flex: 1; }
-  .message { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--green); }
+  .message { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
   .message.red { color: var(--red); }
 </style>

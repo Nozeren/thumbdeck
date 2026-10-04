@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -24,6 +25,10 @@ pub struct Settings {
     pub hidden_actions: HashMap<String, Vec<String>>,
     /// Plugin tabs turned on, per project path
     pub tabs: HashMap<String, Vec<crate::plugins::PluginTab>>,
+    /// The tab shown last, per project path ("readme" or "<plugin>:<tab>"): it opens on that one
+    pub last_tab: HashMap<String, String>,
+    /// How each action ran last, per project path and action label (the Overview's Last runs)
+    pub last_runs: HashMap<String, HashMap<String, LastRun>>,
     /// The character in the top bar ("octopus", "crab", ...; empty: the octopus; "none": none)
     pub avatar: String,
     /// Installed plugins, in the order they were installed
@@ -32,6 +37,17 @@ pub struct Settings {
     pub plugin_settings: HashMap<String, serde_json::Value>,
     /// The official plugins were offered (the first start with plugins)
     pub catalog_offered: bool,
+}
+
+/// How an action ran last
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LastRun {
+    /// Its exit code (-1: stopped by a signal)
+    pub code: i32,
+    /// When it ended, in milliseconds since 1970
+    pub ended: u64,
+    /// How long it took
+    pub seconds: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -121,7 +137,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 }
 
@@ -131,34 +147,44 @@ fn file(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn load(app: &AppHandle) -> Settings {
-    file(app)
-        .ok()
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    file(app).map(|f| load_file(&f)).unwrap_or_default()
 }
 
-pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    let path = file(app)?;
+fn load_file(path: &Path) -> Settings {
+    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+}
+
+/// Written to a file next to it, then put in its place: a load at the same moment reads the
+/// old settings or the new ones, never half a file (which would read as no settings at all)
+fn save_file(path: &Path, settings: &Settings) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    let new = path.with_extension("json.new");
+    std::fs::write(&new, text).map_err(|e| e.to_string())?;
     // Plugins' settings can hold tokens (secret fields): readable by you only
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o600));
     }
-    Ok(())
+    std::fs::rename(&new, path).map_err(|e| e.to_string())
 }
+
+/// One change at a time: two at once would each save their own copy, and one would be lost
+static CHANGING: Mutex<()> = Mutex::new(());
 
 /// Load, change, save.
 pub fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
-    let mut settings = load(app);
+    update_file(&file(app)?, change)
+}
+
+fn update_file(path: &Path, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+    let _one = CHANGING.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = load_file(path);
     change(&mut settings);
-    save(app, &settings)?;
+    save_file(path, &settings)?;
     Ok(settings)
 }
 
@@ -206,9 +232,29 @@ pub fn remove_root(s: &mut Settings, path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::TempDir;
+
+    #[test]
+    fn changes_at_the_same_time_are_all_kept() {
+        let d = TempDir::new("settings-race");
+        let path = d.0.join("settings.json");
+        let threads: Vec<_> = (0..16)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || update_file(&path, |s| s.added.push(format!("/p{i}"))).unwrap())
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let mut added = load_file(&path).added;
+        added.sort();
+        assert_eq!(added.len(), 16, "{added:?}");
+        assert!(!path.with_extension("json.new").exists());
+    }
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 
     #[test]

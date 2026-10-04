@@ -16,6 +16,8 @@ export interface Keymap {
   /** Who has the keyboard: shown at the start of the status bar ("GIT", "REVIEW") */
   name: string;
   bindings: Binding[];
+  /** A grid of buttons (the Toolkit): h / l move left / right there, not back / open */
+  grid?: boolean;
 }
 
 /** The same key, the same meaning: key -> the action it must run wherever it's bound */
@@ -28,6 +30,9 @@ export const RULES: Record<string, string> = {
   q: "leave", Escape: "leave",
   S: "setup", "?": "help",
 };
+
+/** What h / l do in a grid instead of their rule */
+const GRID_MOVES: Record<string, string> = { h: "left", l: "right" };
 
 /** A key press as a name: "j", "G", "Enter", "Space", "Shift+Tab", "Ctrl+d" */
 export function keyName(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): string {
@@ -55,7 +60,7 @@ export function conflicts(map: Keymap): string[] {
 /** Keys breaking RULES in a keymap: "v runs open (the rule: review)" */
 export function ruleBreaks(map: Keymap): string[] {
   return map.bindings.flatMap((b) =>
-    b.keys.filter((k) => RULES[k] && RULES[k] !== b.action).map((k) => `${k} runs ${b.action} (the rule: ${RULES[k]})`),
+    b.keys.filter((k) => RULES[k] && RULES[k] !== b.action && !(map.grid && GRID_MOVES[k] === b.action)).map((k) => `${k} runs ${b.action} (the rule: ${RULES[k]})`),
   );
 }
 

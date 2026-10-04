@@ -15,7 +15,7 @@ pub const RULES: &[(&str, &str)] = &[
 ];
 
 /// Keys thumbdeck keeps even while a plugin has the keyboard
-pub const RESERVED: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "z", "Ctrl+p"];
+pub const RESERVED: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "z", "Ctrl+p", "Ctrl+h", "Ctrl+j", "Ctrl+k", "Ctrl+l", "Ctrl+b"];
 
 /// A `[keys.<name>]` table: one place's (or mode's) keys
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -57,7 +57,7 @@ impl Keymap {
                 }
                 seen.push(k);
                 if RESERVED.contains(&k.as_str()) {
-                    out.push(format!("keys.{map}: {k} is thumbdeck's (1–9 show tabs, z is wide, Ctrl+p the Plugins pane)"));
+                    out.push(format!("keys.{map}: {k} is thumbdeck's (1–9 show tabs, z is wide, Ctrl+p the Plugins pane, Ctrl+h/j/k/l move between panes, Ctrl+b then n / p the next / previous tab)"));
                 }
                 if let Some((_, rule)) = RULES.iter().find(|(key, _)| key == k) {
                     if *rule != b.action {

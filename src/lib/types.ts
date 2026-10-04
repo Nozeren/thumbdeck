@@ -57,6 +57,19 @@ export interface Details {
   readme: string | null;
   /** The plugin tabs turned on for the project */
   tabs: TabInfo[];
+  /** The tab shown last ("overview", "readme" or "<plugin>:<tab>") */
+  last_tab: string | null;
+  /** How each action ran last, by its label */
+  last_runs: Record<string, LastRun>;
+}
+
+/** How an action ran last */
+export interface LastRun {
+  /** Its exit code (-1: stopped) */
+  code: number;
+  /** When it ended (milliseconds since 1970) */
+  ended: number;
+  seconds: number;
 }
 
 /** A plugin's tab that can be added to a project */

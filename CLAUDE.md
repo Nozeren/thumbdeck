@@ -35,6 +35,8 @@ The user reads everything in plain English; the README is the user-facing docume
   is drawn from it); `RULES` in `keys.ts` (a key means the same everywhere) is checked by
   `npm test`. `src/lib/StatusBar.svelte`: the bottom line (who has the keyboard, branch, messages)
 - `src/lib/review/`: the review page (diff parsing in `diff.ts`), opened by Git and PR tabs
+- `src/lib/overview/`: the Overview, the center's first tab: thumbdeck's Last runs card and the
+  plugins' `[[card]]`s
 - `src/routes/+page.svelte`: the whole page (keys in `onKey`, help dialog, styles; shared dialog
   and button styles are `:global` there)
 

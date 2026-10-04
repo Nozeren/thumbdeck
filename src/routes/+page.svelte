@@ -6,7 +6,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import type { Action, Addable, CustomAction, Details, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
-  import type { CatalogEntry, FrameInfo, Host, PanelInfo, TabExports, View } from "$lib/plugins/types";
+  import type { CardInfo, CatalogEntry, FrameInfo, Host, PanelInfo, TabExports, View } from "$lib/plugins/types";
   import CatalogDialog from "$lib/plugins/CatalogDialog.svelte";
   import PluginFrame from "$lib/plugins/PluginFrame.svelte";
   import PluginSetupForm from "$lib/plugins/PluginSetupForm.svelte";
@@ -16,7 +16,8 @@
   import StatusBar from "$lib/StatusBar.svelte";
   import SettingsDialog from "$lib/settings/SettingsDialog.svelte";
   import { actionFor, keysLabel } from "$lib/keys/keys";
-  import { DIALOG, FILTER, MAIN, PLUGINS, REVIEW, TOOLKIT } from "$lib/keys/maps";
+  import { CENTER, DIALOG, FILTER, KIT, MAIN, OVERVIEW, PLUGINS, PREFIX, PROJECTS, REVIEW, RUNNING, TOOLKIT } from "$lib/keys/maps";
+  import Overview from "$lib/overview/Overview.svelte";
   import type { ReviewRequest } from "$lib/review/types";
   import { combine, pickMood } from "$lib/avatar/mood";
 
@@ -53,16 +54,24 @@
     if (tabMenu && tabMenuEl && !tabMenuEl.contains(e.target as Node)) tabMenu = false;
   }
 
-  // A click outside the center gives the keyboard back to thumbdeck
+  // A click in a pane gives it the keyboard (a click in a plugin's frame: see onActivate)
   function mouseDown(e: MouseEvent) {
-    if (keysToTab && centerEl && !centerEl.contains(e.target as Node)) keysToTab = false;
+    const p = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-pane]")?.dataset.pane;
+    if (p) pane = p as Pane;
   }
   // ------------------------------------------------------------ extension tabs
   let available = $state<Addable[]>([]);
-  // Plugin tab shown in the center (its index in details.tabs); null: README or a run
+  // Plugin tab shown in the center (its index in details.tabs); null: the Overview or the README
+  // (shownPage says which), or a run
   let shownTab = $state<number | null>(null);
-  // The shown tab has the keyboard (a click in it, or its number key); Esc gives it back
-  let keysToTab = $state(false);
+  let shownPage = $state<"overview" | "readme">("overview");
+  let overviewRef = $state<{ handleKey(e: KeyboardEvent): boolean; keymap(): import("$lib/keys/keys").Keymap } | null>(null);
+  // The project's Overview cards from plugins
+  let cards = $state<CardInfo[]>([]);
+  // The pane with the keyboard, like a split in nvim or a pane in tmux: Ctrl+h/j/k/l moves
+  // between them, a click or a tab's number key picks one, Esc goes back to the projects
+  type Pane = "projects" | "plugins" | "center" | "running" | "toolkit";
+  let pane = $state<Pane>("projects");
   // The center takes the whole window (z): more room for a log, a README, a run's output
   let wide = $state(false);
   let tabMenu = $state(false);
@@ -93,8 +102,6 @@
   let liveViews = $state<{ key: string; plugin: string; frame: FrameInfo }[]>([]);
   let viewRefs = $state<Record<string, TabExports | null>>({});
   let statuses = $state<Record<string, string | null>>({});
-  // The Plugins pane has the keyboard (Ctrl+p)
-  let paneKeys = $state(false);
   let paneCursor = $state(0);
   // A plugin's page over the whole window
   let pluginPage = $state<{ key: string; id: string; info: FrameInfo; data: unknown; project: { path: string; name: string; branch: string | null } | null } | null>(null);
@@ -116,7 +123,10 @@
   }
 
   async function loadPanels() {
-    panels = await invoke<PanelInfo[]>("plugin_panels", { path: selected?.path ?? null });
+    const path = selected?.path ?? null;
+    panels = await invoke<PanelInfo[]>("plugin_panels", { path });
+    const c = path ? await invoke<CardInfo[]>("plugin_cards", { path }) : [];
+    if (path === (selected?.path ?? null)) cards = c;
   }
 
   function openView(plugin: string, keys = true) {
@@ -125,8 +135,7 @@
     shownView = plugin;
     const key = `${plugin}#${reloads[plugin] ?? 0}`;
     if (!liveViews.some((x) => x.key === key)) liveViews.push({ key, plugin, frame: v.frame });
-    paneKeys = false;
-    keysToTab = keys;
+    if (keys) pane = "center";
   }
 
   async function openPluginPage(plugin: string, id: string, data: unknown, project: { path: string; name: string; branch: string | null } | null) {
@@ -142,6 +151,8 @@
   const activeTab = $derived(
     shownViewKey ? (viewRefs[shownViewKey] ?? null) : shownFrameKey ? (frameRefs[shownFrameKey] ?? null) : null,
   );
+  // The center has the keyboard and shows a plugin's tab or view: the keys are its own
+  const keysToTab = $derived(pane === "center" && !!activeTab);
 
   // Start the shown plugin tab's frame, or mark it shown again
   $effect(() => {
@@ -188,8 +199,12 @@
       await invoke("plugin_refresh_actions", { plugin });
       if (selected) details = await invoke<Details>("project_details", { path: selected.path });
     },
-    badge: (key, value) => (badges[key] = value),
-    mood: (key, signal, value) => (pluginMoods[key] = { ...pluginMoods[key], [signal]: value }),
+    badge: (key, value) => {
+      badges[key] = value;
+    },
+    mood: (key, signal, value) => {
+      pluginMoods[key] = { ...pluginMoods[key], [signal]: value };
+    },
     forget: (key) => {
       delete pluginMoods[key];
       delete badges[key];
@@ -201,11 +216,13 @@
   // What plugin frames and backends tell the avatar: sender -> signal -> value
   let pluginMoods = $state<Record<string, Record<string, unknown>>>({});
 
-  function showTab(i: number | null, keys = true) {
+  /** Show a plugin tab (its index), the Overview or the README */
+  function showTab(i: number | "overview" | "readme", keys = true) {
     shownView = null;
     shownRun = null;
-    shownTab = i;
-    keysToTab = i !== null && keys;
+    if (typeof i === "number") shownTab = i;
+    else [shownTab, shownPage] = [null, i];
+    if (keys) pane = "center";
   }
 
   async function addTab(id: string) {
@@ -231,7 +248,7 @@
       tab: setup === null ? null : { plugin: tab.plugin, tab: tab.tab, setup },
     });
     if (change === "add") showTab(details.tabs.length - 1);
-    else if (change === "remove") showTab(null);
+    else if (change === "remove") showTab("overview");
   }
 
   // ------------------------------------------------------------ settings (plugins)
@@ -254,6 +271,7 @@
 
   // ------------------------------------------------------------ keyboard
   let hints = $state(false); // Space pressed: Toolkit buttons show their letters
+  let prefix = $state(false); // Ctrl+b pressed: n / p come next, as in tmux
   let helpOpen = $state(false);
   let filterEl = $state<HTMLInputElement | null>(null);
   const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
@@ -280,6 +298,75 @@
     select(p);
   }
 
+  // Ctrl+h/j/k/l: the pane that way. The left and right columns remember the pane last used.
+  const lastInColumn: Pane[] = ["projects", "center", "toolkit"];
+  function goPane(dir: "h" | "j" | "k" | "l") {
+    const columns: Pane[][] = wide ? [[], ["center"], []]
+      : [views.length ? ["projects", "plugins"] : ["projects"], ["center"], ["running", "toolkit"]];
+    const c = columns.findIndex((col) => col.includes(pane));
+    if (c < 0) return void (pane = "center");
+    lastInColumn[c] = pane;
+    const col = columns[c];
+    if (dir === "j" || dir === "k") {
+      pane = col[col.indexOf(pane) + (dir === "j" ? 1 : -1)] ?? pane;
+    } else {
+      const next = columns[c + (dir === "l" ? 1 : -1)];
+      if (next?.length) pane = next.includes(lastInColumn[c + (dir === "l" ? 1 : -1)]) ? lastInColumn[c + (dir === "l" ? 1 : -1)] : next[0];
+    }
+  }
+
+  // The Running and Toolkit panes' cursors
+  let runCursor = $state(0);
+  let kitCursor = $state(0);
+  function moveCursor(cursor: number, length: number, delta: number | "first" | "last") {
+    const next = delta === "first" ? 0 : delta === "last" ? length - 1 : cursor + delta;
+    tick().then(() => document.querySelector(".cursor")?.scrollIntoView({ block: "nearest" }));
+    return Math.max(0, Math.min(length - 1, next));
+  }
+
+  // The Toolkit's buttons as rows, two to a row as the grid shows them (indices into kitOrder)
+  const kitRows = $derived.by(() => {
+    let i = 0;
+    return groups.flatMap(([, actions]) =>
+      Array.from({ length: Math.ceil(actions.length / 2) }, (_, r) => actions.slice(r * 2, r * 2 + 2).map(() => i++)),
+    );
+  });
+  // h / j / k / l on the Toolkit's grid: j / k keep the column when the row has one
+  function kitMove(action: string) {
+    const last = kitOrder.length - 1;
+    if (action === "first" || action === "last") return moveCursor(kitCursor, kitOrder.length, action);
+    const r = kitRows.findIndex((row) => row.includes(kitCursor));
+    if (r < 0) return 0;
+    const c = kitRows[r].indexOf(kitCursor);
+    const row = kitRows[r + (action === "down" ? 1 : action === "up" ? -1 : 0)];
+    if (!row) return kitCursor;
+    const next = action === "left" ? row[c - 1] : action === "right" ? row[c + 1] : row[Math.min(c, row.length - 1)];
+    return moveCursor(next ?? kitCursor, last + 1, 0);
+  }
+
+  // The center's README or run output, scrolled from the keyboard
+  function scrollCenter(how: "down" | "up" | "page-down" | "page-up" | "first" | "last") {
+    const el = current ? outputEl : readmeEl;
+    if (!el) return;
+    const half = el.clientHeight / 2;
+    const by = { down: 40, up: -40, "page-down": half, "page-up": -half, first: -el.scrollHeight, last: el.scrollHeight }[how];
+    el.scrollBy({ top: by });
+  }
+
+  // Ctrl+b n / p: the next / previous tab (Overview, README, the plugin tabs, the runs), round
+  // and round. The keyboard stays where it is.
+  function cycleTabs(delta: number) {
+    if (!details) return;
+    const tabs = details.tabs.length;
+    const count = 2 + tabs + runTabs.length;
+    const runAt = runTabs.findIndex((r) => r.id === shownRun);
+    const at = shownView ? -1 : runAt >= 0 ? 2 + tabs + runAt : shownTab !== null ? shownTab + 2 : shownPage === "overview" ? 0 : 1;
+    const next = (Math.max(at, delta > 0 ? -1 : 0) + delta + count) % count;
+    if (next < 2) showTab(next === 0 ? "overview" : "readme", false);
+    else if (next < 2 + tabs) showTab(next - 2, false);
+    else showRun(runTabs[next - 2 - tabs].id);
+  }
+
   function cycleRuns(delta: number) {
     const list = runTabs; // oldest first
     if (!list.length) return;
@@ -302,45 +389,56 @@
     }
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
     const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer;
+    // Ctrl+h/j/k/l: the next pane that way, from anywhere (a plugin's tab too)
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !dialog && ["h", "j", "k", "l"].includes(e.key)) {
+      e.preventDefault();
+      if (typing) (e.target as HTMLElement).blur();
+      hints = false;
+      goPane(e.key as "h" | "j" | "k" | "l");
+      return;
+    }
+    // Ctrl+b, then n / p: the next / previous tab, as in tmux (from a plugin's tab too)
+    if (prefix && !["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
+      e.preventDefault();
+      prefix = false;
+      const action = actionFor(PREFIX, e);
+      if (action === "next-tab" || action === "previous-tab") cycleTabs(action === "next-tab" ? 1 : -1);
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "b" && !dialog) {
+      e.preventDefault();
+      prefix = true;
+      return;
+    }
     // Ctrl+p: the Plugins pane has the keyboard (anywhere)
     if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "p" && !dialog) {
       e.preventDefault();
       if (!views.length) return say("No plugin has a view: plugins with one show in the Plugins pane");
-      keysToTab = false;
-      paneKeys = true;
+      wide = false;
+      pane = "plugins";
       return;
     }
-    if (paneKeys && !typing && !dialog) {
-      e.preventDefault();
-      switch (actionFor(PLUGINS, e)) {
-        case "down": paneCursor = Math.min(views.length - 1, paneCursor + 1); break;
-        case "up": paneCursor = Math.max(0, paneCursor - 1); break;
-        case "first": paneCursor = 0; break;
-        case "last": paneCursor = views.length - 1; break;
-        case "open": if (views[paneCursor]) openView(views[paneCursor].plugin); break;
-        case "leave": paneKeys = false; break;
-        case "help": helpOpen = true; paneKeys = false; break;
-      }
-      return;
-    }
-    // 1 README, 2… extension tabs
+    // 1 Overview, 2 README, 3… the plugin tabs, then the runs
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
-      const runIndex = n - 2 - details.tabs.length;
-      if (n === 1) showTab(null);
-      else if (details.tabs[n - 2]) showTab(n - 2);
+      const runIndex = n - 3 - details.tabs.length;
+      if (n === 1) showTab("overview");
+      else if (n === 2) showTab("readme");
+      else if (details.tabs[n - 3]) showTab(n - 3);
       else if (runTabs[runIndex]) showRun(runTabs[runIndex].id);
+      pane = "center";
       e.preventDefault();
       return;
     }
     if (e.key === "z" && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey) {
       wide = !wide;
+      if (wide) pane = "center"; // the others are hidden
       e.preventDefault();
       return;
     }
     // The shown tab has the keyboard: its keys, and nothing of thumbdeck's but Esc
-    if (keysToTab && (tabShown || shownView) && activeTab && !typing && !dialog) {
-      if (!activeTab.handleKey(e) && e.key === "Escape") keysToTab = false;
+    if (keysToTab && activeTab && !typing && !dialog) {
+      if (!activeTab.handleKey(e) && e.key === "Escape") pane = "projects";
       e.preventDefault();
       return;
     }
@@ -350,6 +448,8 @@
     const button = e.target instanceof HTMLElement ? e.target.closest("button") : null;
     if ((e.key === "Enter" || e.key === " ") && button?.matches(":focus-visible")) return;
     if (e.key === "Escape") {
+      // Esc closes what's open; with nothing open, the projects get the keyboard back
+      if (!(addMenu || tabMenu || dialog || hints || typing)) pane = "projects";
       addMenu = false;
       tabMenu = false;
       form = null;
@@ -372,24 +472,55 @@
       if (i >= 0 && a) run(a);
       return;
     }
+    if (paneKey(e)) return void e.preventDefault();
     switch (actionFor(MAIN, e)) {
       case "toolkit": hints = (details?.actions.length ?? 0) > 0; break;
-      case "down": move(1); break;
-      case "up": move(-1); break;
-      case "first": move("first"); break;
-      case "last": move("last"); break;
-      case "filter": filterEl?.focus(); break;
-      case "pin": if (selected) edit("pin", selected.path); break;
-      case "remove": if (selected) edit("remove", selected.path); break;
       case "add": if (selected) openForm(); break;
       case "stop": if (current && current.endedAt === null) stop(current); break;
       case "run": cycleRuns(e.key === "[" ? -1 : 1); break;
       case "help": helpOpen = !helpOpen; break;
-      case "outside": openInTmux(); break;
       case "settings": openSettings(); break;
       default: return;
     }
     e.preventDefault();
+  }
+
+  // The keys of the pane with the keyboard; false: not one of them (MAIN's may be)
+  function paneKey(e: KeyboardEvent): boolean {
+    const action = actionFor(paneKeys, e);
+    if (action === null) return false;
+    if (action === "leave") return void (pane = "projects"), true;
+    if (pane === "projects") {
+      switch (action) {
+        case "down": move(1); break;
+        case "up": move(-1); break;
+        case "first": case "last": move(action); break;
+        case "open": pane = "center"; break;
+        case "outside": openInTmux(); break;
+        case "filter": filterEl?.focus(); break;
+        case "pin": if (selected) edit("pin", selected.path); break;
+        case "remove": if (selected) edit("remove", selected.path); break;
+      }
+    } else if (pane === "plugins") {
+      const step = { down: 1, up: -1, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
+      if (step !== undefined) paneCursor = moveCursor(paneCursor, views.length, step);
+      else if (action === "open" && views[paneCursor]) openView(views[paneCursor].plugin);
+    } else if (pane === "center") {
+      if (overviewShown) overviewRef?.handleKey(e);
+      else scrollCenter(action as Parameters<typeof scrollCenter>[0]);
+    } else if (pane === "running") {
+      const step = { down: 1, up: -1, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
+      const r = projectRuns[runCursor];
+      if (step !== undefined) runCursor = moveCursor(runCursor, projectRuns.length, step);
+      else if (action === "open" && r) showRun(r.id);
+      else if (action === "stop-this" && r?.endedAt === null) stop(r);
+    } else if (pane === "toolkit") {
+      const a = kitOrder[kitCursor];
+      if (["down", "up", "left", "right", "first", "last"].includes(action)) kitCursor = kitMove(action);
+      else if (action === "press" && a) run(a);
+      else if (action === "edit" && a?.source === "custom") openForm(a);
+    }
+    return true;
   }
 
   // Enter in the filter opens the first match
@@ -581,7 +712,6 @@
   function showRun(id: number) {
     closedRuns = closedRuns.filter((x) => x !== id);
     shownRun = id;
-    keysToTab = false;
   }
 
   function closeRun(r: Run) {
@@ -590,21 +720,32 @@
     if (shownRun === r.id) {
       const next = runTabs[i] ?? runTabs[i - 1]; // runTabs no longer has r
       if (next) shownRun = next.id;
-      else showTab(shownTab !== null && details?.tabs[shownTab] ? shownTab : null, false);
+      else showTab(shownTab !== null && details?.tabs[shownTab] ? shownTab : shownPage, false);
     }
   }
   // An extension tab is in the center (not the README or a run's output)
   const tabShown = $derived(shownRun === null && shownTab !== null && !!details?.tabs[shownTab]);
+  // The Overview is in the center
+  const overviewShown = $derived(!shownView && shownRun === null && !tabShown && shownPage === "overview" && !!details);
+  // The keys of the pane with the keyboard (the center's, named after what it shows)
+  const paneKeys = $derived(
+    pane === "plugins" ? PLUGINS
+    : pane === "center" && overviewShown ? (overviewRef?.keymap() ?? OVERVIEW)
+    : pane === "center" ? { ...CENTER, name: current ? "OUTPUT" : shownView ? "VIEW" : tabShown ? "TAB" : "README" }
+    : pane === "running" ? RUNNING
+    : pane === "toolkit" ? KIT
+    : PROJECTS,
+  );
   /** Who has the keyboard, for the status bar at the bottom */
   const barKeys = $derived(
     review ? REVIEW
     : pluginPage && pageRef ? pageRef.keymap()
     : form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer ? DIALOG
-    : paneKeys ? PLUGINS
+    : prefix ? PREFIX
     : filtering ? FILTER
     : hints ? TOOLKIT
-    : keysToTab && (tabShown || shownView) && activeTab ? activeTab.keymap()
-    : MAIN,
+    : keysToTab && activeTab ? activeTab.keymap()
+    : paneKeys,
   );
   // Toolkit grouped by where each action came from: yours, then one group per pack
   const groups = $derived.by(() => {
@@ -612,18 +753,40 @@
     for (const a of details?.actions ?? []) byGroup.set(a.source, [...(byGroup.get(a.source) ?? []), a]);
     return [...byGroup.values()].map((actions) => [actions[0].group, actions] as const);
   });
+  // The Toolkit's buttons in the order they show (j / k go through them)
+  const kitOrder = $derived(groups.flatMap(([, actions]) => actions));
 
   async function select(p: Project) {
     selected = p;
     shownView = null;
-    paneKeys = false;
     invoke("edit_projects", { change: "last", path: p.path }); // remembered for the next start
     shownRun = null;
-    showTab(null);
+    runCursor = 0;
+    kitCursor = 0;
+    showTab("overview", false);
     details = null;
     loadPanels();
-    details = await invoke<Details>("project_details", { path: p.path });
+    const d = await invoke<Details>("project_details", { path: p.path });
+    if (selected?.path !== p.path) return; // another project was picked meanwhile
+    details = d;
+    // Open on the tab shown last in this project
+    const last = d.tabs.findIndex((t) => `${t.plugin}:${t.tab}` === d.last_tab);
+    if (last >= 0) showTab(last, false);
+    else if (d.last_tab === "readme") showTab("readme", false);
   }
+
+  // The tab shown, remembered for the project's next opening (a run's output isn't: runs end
+  // with the app)
+  $effect(() => {
+    const path = selected?.path;
+    const d = details;
+    if (!path || !d || shownView) return;
+    const t = shownTab === null ? null : d.tabs[shownTab];
+    const id = t ? `${t.plugin}:${t.tab}` : shownPage;
+    if (id === untrack(() => d.last_tab)) return;
+    d.last_tab = id;
+    invoke("remember_tab", { path, tab: id });
+  });
 
   async function editActions(change: string, id = "", action: CustomAction | null = null) {
     if (!selected) return;
@@ -735,6 +898,10 @@
       if (r) {
         r.endedAt = Date.now();
         r.code = e.payload.code ?? -1;
+        // Remembered for the Overview's Last runs
+        const last = { code: r.code, ended: r.endedAt, seconds: Math.round((r.endedAt - r.startedAt) / 1000) };
+        invoke("remember_run", { path: r.projectPath, label: r.label, run: last });
+        if (details && selected?.path === r.projectPath) details.last_runs[r.label] = last;
       }
     });
     const timer = setInterval(() => (now = Date.now()), 1000);
@@ -767,7 +934,7 @@
     </header>
     <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey}
            onfocus={() => (filtering = true)} onblur={() => (filtering = false)} />
-    <section class="card helm">
+    <section class="card helm" class:focus={pane === "projects"} data-pane="projects">
       <h2>
         <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
         <span class="menu-anchor" bind:this={addMenuEl}>
@@ -821,12 +988,12 @@
     </section>
     {#if views.length}
       <!-- The plugins with a view of their own (Ctrl+p) -->
-      <section class="card pane" class:keys={paneKeys}>
+      <section class="card pane" class:focus={pane === "plugins"} data-pane="plugins">
         <h2><span class="dot aqua"></span>Plugins <span class="count">Ctrl+p</span></h2>
         <ul>
           {#each views as v, i (v.plugin)}
             <li class="project">
-              <button class="pick" class:active={shownView === v.plugin} class:cursor={paneKeys && i === paneCursor}
+              <button class="pick" class:active={shownView === v.plugin} class:cursor={pane === "plugins" && i === paneCursor}
                       onclick={() => openView(v.plugin)}>
                 <span class="kind">◇</span><span class="name">{v.name}</span>
                 {#if v.status && statuses[v.plugin]}<span class="vstatus">{statuses[v.plugin]}</span>{/if}
@@ -839,21 +1006,21 @@
   </aside>
 
   <!-- ------------------------------------------------------------ center -->
-  <section class="panel center" bind:this={centerEl}>
+  <section class="panel center" class:focus={pane === "center"} bind:this={centerEl} data-pane="center">
     <!-- A plugin's view (from the Plugins pane), in place of the project; kept alive -->
     <div class="side" class:gone={!shownView}>
       <nav class="crumbs">
         <span class="path">Plugins</span><span> / </span>
         <strong class="name">{views.find((v) => v.plugin === shownView)?.name ?? ""}</strong>
         <span class="spacer"></span>
-        {#if selected}<button class="tab" title="Back to the project (1)" onclick={() => showTab(null, false)}>‹ {selected.name}</button>{/if}
+        {#if selected}<button class="tab" title="Back to the project (1)" onclick={() => showTab(shownPage, false)}>‹ {selected.name}</button>{/if}
       </nav>
       <div class="view">
         {#each liveViews as v (v.key)}
           <PluginFrame bind:this={viewRefs[v.key]} info={v.frame} frameKey="view:{v.plugin}" surface="view" surfaceId=""
                        project={selectedInfo} setup={null} active={keysToTab && shownViewKey === v.key} visible={shownViewKey === v.key}
-                       thumbdeck={version} {host} {say} onActivate={() => shownViewKey === v.key && (keysToTab = true)}
-                       onRelease={() => (keysToTab = false)} onEditSetup={() => {}} openReview={(r) => (review = r)} />
+                       thumbdeck={version} {host} {say} onActivate={() => shownViewKey === v.key && (pane = "center")}
+                       onRelease={() => (pane = "projects")} onEditSetup={() => {}} openReview={(r) => (review = r)} />
         {/each}
       </div>
     </div>
@@ -873,7 +1040,7 @@
         <PluginFrame bind:this={frameRefs[f.key]} info={f.tab.frame!} frameKey={f.key} surface="tab" surfaceId={f.tab.tab}
                      project={f.project} setup={f.tab.setup} active={keysToTab && shownFrameKey === f.key}
                      visible={shownFrameKey === f.key && !current} thumbdeck={version} {host} {say}
-                     onActivate={() => shownFrameKey === f.key && (keysToTab = true)} onRelease={() => (keysToTab = false)}
+                     onActivate={() => shownFrameKey === f.key && (pane = "center")} onRelease={() => (pane = "projects")}
                      onEditSetup={() => f.project.path === selected?.path && (setupForm = { index: f.index, tab: f.tab })}
                      openReview={(r) => (review = r)} />
       {/each}
@@ -890,24 +1057,40 @@
             <button class="ghost" onclick={() => { setupForm = { index: shownTab, tab: t }; saveTab("remove"); }}>Remove this tab</button>
           </div>
         {/if}
+      {:else if overviewShown}
+        <!-- (the Overview, below, kept while the project is selected) -->
       {:else if details?.readme}
         <article class="readme" bind:this={readmeEl}>{@html marked.parse(details.readme)}</article>
       {:else}
         <p class="empty">{details ? "No README in this project." : "Loading…"}</p>
       {/if}
+      <!-- The Overview stays while the project is selected (its cards don't load again each time) -->
+      {#if details}
+        <Overview bind:this={overviewRef} project={selected} {details} runs={projectRuns} {cards} visible={overviewShown}
+                  active={pane === "center"} {now} thumbdeck={version} {host} {badges} {reloads} {say}
+                  openReview={(r) => (review = r)} toToolkit={() => (pane = "toolkit")} onFocus={() => (pane = "center")}
+                  openTab={(plugin, tab) => {
+                    const i = details?.tabs.findIndex((t) => t.plugin === plugin && t.tab === tab) ?? -1;
+                    if (i >= 0) showTab(i);
+                    return i >= 0;
+                  }} />
+      {/if}
       </div>
       <!-- Tabs: README, the project's plugin tabs, the runs you started (1, 2, …) -->
       <nav class="tabbar">
         <div class="tabs">
-        <button class="btab" class:on={shownRun === null && !tabShown} title="README (1)" onclick={() => showTab(null)}>
+        <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "overview"} title="Overview (1)" onclick={() => showTab("overview")}>
+          <span class="bicon">◉</span>Overview
+        </button>
+        <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "readme"} title="README (2)" onclick={() => showTab("readme")}>
           <span class="bicon">≡</span>README
         </button>
         {#each details?.tabs ?? [] as t, i}
           <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                  title="{t.title} ({i + 2})" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
+                  title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
         {/each}
         {#each runTabs as r, i (r.id)}
-          {@const n = 2 + (details?.tabs.length ?? 0) + i}
+          {@const n = 3 + (details?.tabs.length ?? 0) + i}
           <span class="btab brun" class:on={shownRun === r.id}>
             <button class="blabel" title="{r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
               <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>{r.label}
@@ -940,13 +1123,13 @@
 
   <!-- ------------------------------------------------------------ running + toolkit -->
   <aside class="panel right">
-    <section class="card running">
-      <h2><span class="dot green"></span>Running</h2>
+    <section class="card running" class:focus={pane === "running"} data-pane="running">
+      <h2><span class="dot blue"></span>Running</h2>
       {#if projectRuns.length === 0}
         <p class="hint">Nothing yet: pick something from the toolkit.</p>
       {/if}
-      {#each projectRuns as r (r.id)}
-        <div class="run" class:shown={r.id === shownRun} role="button" tabindex="0"
+      {#each projectRuns as r, i (r.id)}
+        <div class="run" class:shown={r.id === shownRun} class:cursor={pane === "running" && i === runCursor} role="button" tabindex="0"
              onclick={() => showRun(r.id)} onkeydown={(e) => e.key === "Enter" && showRun(r.id)}>
           <span class="avatar {r.source}">{r.source.slice(0, 2)}</span>
           <span class="what">
@@ -961,7 +1144,7 @@
       {/each}
     </section>
 
-    <section class="card toolkit">
+    <section class="card toolkit" class:focus={pane === "toolkit"} data-pane="toolkit">
       <h2>
         <span class="dot orange"></span>Toolkit {#if selected}<span class="for">{selected.name}</span>{/if}
         {#if selected}<button class="icon" title="Add your own action" onclick={() => openForm()}>+</button>{/if}
@@ -978,7 +1161,7 @@
           {#each actions as a (a.id)}
             {@const hint = HINT_KEYS[details?.actions.indexOf(a) ?? -1]}
             <div class="action-wrap">
-              <button class="action" class:custom={a.source === "custom"} onclick={() => run(a)}
+              <button class="action" class:custom={a.source === "custom"} class:cursor={pane === "toolkit" && kitOrder[kitCursor] === a} onclick={() => run(a)}
                       title={[a.description, a.command, a.tmux && `runs in tmux window '${a.tmux}'`].filter(Boolean).join("\n")}>
                 {#if hints && hint}
                   <span class="hint-key">{hint}</span>
@@ -1054,6 +1237,9 @@
     <div class="dialog help">
       <h2><span class="dot purple"></span>Keys <span class="for">? or Esc to close</span></h2>
       <dl>
+        <dt class="group">{paneKeys.name}</dt><dd></dd>
+        {#each paneKeys.bindings as b}<dt>{keysLabel(b)}</dt><dd>{b.does}</dd>{/each}
+        <dt class="group">EVERYWHERE</dt><dd></dd>
         {#each MAIN.bindings as b}<dt>{keysLabel(b)}</dt><dd>{b.does}</dd>{/each}
         <dt>in a tab</dt><dd>the same keys mean the same things: j k g G move, Enter / l open, h back, Tab next list,
           v review, o open outside, d / u scroll, r refresh, S setup, ? its keys, Esc or q give the keyboard back</dd>
@@ -1224,14 +1410,14 @@
           color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
   .btab:hover { background: var(--bg1); color: var(--fg); }
   .btab.on { background: var(--bg2); color: var(--fg); }
-  .btab.keys { box-shadow: inset 0 -2px var(--orange); }
+  .btab.keys { box-shadow: inset 0 -2px var(--focus); }
   .btab.brun { padding: 0 2px 0 0; gap: 0; }
   .btab.brun .blabel { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 4px 3px 10px;
                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bclose { flex: none; padding: 0 6px; color: var(--grey); border-radius: 4px; }
   .bclose:hover { color: var(--fg); background: var(--bg3); }
   .bicon { flex: none; color: var(--grey); }
-  .st.running, .st.done { color: var(--green); } .st.failed { color: var(--red); }
+  .st.running { color: var(--running); } .st.done { color: var(--green); } .st.failed { color: var(--red); }
   .btab.add { flex: none; padding: 3px 9px; }
   .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
@@ -1239,15 +1425,17 @@
   .side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .side.gone { display: none; }
   .pane { flex: none; max-height: 35%; overflow: auto; }
-  .pane.keys { border-color: var(--orange); }
+  .card.focus, .center.focus { border-color: var(--focus); }
+  .run.cursor, .action.cursor { background: var(--cursor-bg); box-shadow: inset 2px 0 var(--cursor); }
+  .helm.focus .pick.active { box-shadow: inset 2px 0 var(--cursor); }
   .pane ul { list-style: none; margin: 0; padding: 0; }
-  .pick.cursor { box-shadow: inset 2px 0 var(--orange); background: var(--bg1); }
+  .pick.cursor { box-shadow: inset 2px 0 var(--cursor); background: var(--cursor-bg); }
   .vstatus { margin-left: auto; color: var(--grey); font: 11px var(--mono); }
   .ppanel { flex: none; display: flex; flex-direction: column; padding-bottom: 8px; }
   .ppanel h2 { margin-bottom: 6px; }
   .plugin-page { position: fixed; inset: 0 0 22px 0; z-index: 40; background: var(--bg0); display: flex; }
   .tbadge { margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--bg3); color: var(--fg); font-size: 10.5px; }
-  .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--orange); font: 11px var(--mono); }
+  .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--grey); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(img) { max-width: 100%; height: auto; border-radius: 6px; }
   .readme :global(h1), .readme :global(h2) { font-family: var(--mono); border-bottom: 1px solid var(--bg2); padding-bottom: 6px; }
@@ -1256,14 +1444,14 @@
   .readme :global(pre code) { background: none; padding: 0; color: var(--fg); }
   .readme :global(a) { color: var(--blue); }
   .output { flex: 1; margin: 0; padding: 14px; overflow: auto; font: 12.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
-  .output .cmd { color: var(--green); }
+  .output .cmd { color: var(--grey); }
   .output .err { color: var(--red); } .output .ok { color: var(--green); }
   .empty { padding: 20px; }
 
   /* right */
   .running { max-height: 45%; overflow: auto; }
   .run { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: var(--bg1); border: 1px solid transparent; margin-bottom: 6px; cursor: pointer; }
-  .run.shown { border-color: var(--green); }
+  .run.shown { border-color: var(--bg3); }
   .avatar { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font: 700 11px var(--mono); text-transform: uppercase; color: var(--bg0); background: var(--grey); }
   .avatar.npm { background: var(--red); } .avatar.django { background: var(--green); } .avatar.pytest { background: var(--yellow); }
   .avatar.compose { background: var(--blue); } .avatar.gradle { background: var(--aqua); } .avatar.make { background: var(--purple); }
@@ -1271,14 +1459,14 @@
   .what { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .label { font: 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill { align-self: flex-start; font: 10px var(--mono); padding: 1px 7px; border-radius: 99px; }
-  .pill.running { color: var(--green); background: color-mix(in srgb, var(--green) 15%, transparent); }
+  .pill.running { color: var(--running); background: color-mix(in srgb, var(--running) 15%, transparent); }
   .pill.done { color: var(--grey); background: var(--bg2); }
   .pill.failed { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
   .time { font: 11px var(--mono); color: var(--grey); }
   .stop { color: var(--red); padding: 2px 6px; border-radius: 6px; }
   .stop:hover { background: var(--bg2); }
 
-  .toolkit { flex: 1; overflow: auto; border-color: color-mix(in srgb, var(--orange) 35%, var(--bg2)); }
+  .toolkit { flex: 1; overflow: auto; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .action-wrap { position: relative; }
   .action { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border-radius: 8px; background: var(--bg1); border: 1px solid var(--bg2); font: 12.5px var(--mono); }
@@ -1289,13 +1477,13 @@
   .hidden-actions { margin-top: 12px; }
   .hidden-list { list-style: none; margin: 0; padding: 0 0 0 10px; font: 12px var(--mono); }
   .avatar.custom { background: var(--yellow); }
-  .tab.open { color: var(--green); }
   .tab.open:hover { background: var(--bg2); }
   .hint-key { min-width: 16px; padding: 0 4px; border-radius: 4px; text-align: center; background: var(--orange); color: var(--bg0); font-weight: 700; }
   .hint-note { font: 400 11px var(--mono); color: var(--orange); }
   .help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
   .help dt { font-family: var(--mono); color: var(--orange); }
   .help dd { margin: 0; color: var(--fg); }
+  .help dt.group { margin-top: 6px; color: var(--grey); font: 600 11px var(--mono); letter-spacing: 0.5px; }
 
   :global(.backdrop) { position: fixed; inset: 0; z-index: 50; background: #0009; display: grid; place-items: center; }
   :global(.dialog) { width: min(520px, 90vw); background: var(--bg0); border: 1px solid var(--bg3); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px #000a; }
@@ -1309,6 +1497,6 @@
   :global(.ghost) { color: var(--grey); } :global(.ghost:hover) { background: var(--bg2); color: var(--fg); }
   :global(.primary) { background: var(--orange); color: var(--bg0); font-weight: 600; }
   :global(.primary:disabled) { opacity: 0.4; cursor: default; }
-  .action:hover { border-color: var(--orange); }
+  .action:hover { border-color: var(--bg3); background: var(--bg2); }
   .play { color: var(--orange); }
 </style>

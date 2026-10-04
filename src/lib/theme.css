@@ -5,6 +5,11 @@
   --fg: #d3c6aa; --grey: #859289; --grey-dim: #7a8478;
   --red: #e67e80; --orange: #e69875; --yellow: #dbbc7f; --green: #a7c080;
   --aqua: #83c092; --blue: #7fbbb3; --purple: #d699b6;
+  /* What a colour means, for the jobs that repeat: use these, not the colours */
+  --focus: var(--green);        /* the border of the pane that has the keyboard (and nothing else) */
+  --cursor: var(--fg);          /* the mark on the item the keys act on */
+  --cursor-bg: var(--bg2);      /* … and its background */
+  --running: var(--blue);       /* something still running (done: green, failed: red) */
   --mono: "Iosevka Nerd Font", "JetBrains Mono", ui-monospace, monospace;
   --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   color-scheme: dark;

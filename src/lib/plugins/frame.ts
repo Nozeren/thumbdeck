@@ -3,7 +3,7 @@
 import type { FrameInfo } from "./types.ts";
 
 export interface FrameContext {
-  surface: "tab" | "panel" | "page" | "view";
+  surface: "tab" | "panel" | "card" | "page" | "view";
   /** The tab/panel/page id from the manifest */
   id: string;
   project: { path: string; name: string; branch: string | null } | null;

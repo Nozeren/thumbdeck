@@ -117,8 +117,8 @@ fn working<'a>(plugins: &'a [Plugin], plugin: &str) -> Result<(&'a Plugin, &'a M
     })
 }
 
-/// What a frame of a plugin's surface needs: "tab", "panel", "page" or "view" (its id is
-/// ignored); a tab's setup form comes with it
+/// What a frame of a plugin's surface needs: "tab", "panel", "card", "page" or "view" (its id
+/// is ignored for a view); a tab's setup form comes with it
 pub fn frame_info(plugins: &[Plugin], plugin: &str, surface: &str, id: &str) -> Result<FrameInfo, String> {
     let (p, m) = working(plugins, plugin)?;
     let missing = || format!("{} has no {surface} called {id}.", m.name);
@@ -130,6 +130,10 @@ pub fn frame_info(plugins: &[Plugin], plugin: &str, surface: &str, id: &str) -> 
         "panel" => {
             let x = m.panels.iter().find(|x| x.id == id).ok_or_else(missing)?;
             (x.name.clone(), x.page.clone(), vec![], None, format!("panel:{id}"))
+        }
+        "card" => {
+            let x = m.cards.iter().find(|x| x.id == id).ok_or_else(missing)?;
+            (x.name.clone(), x.page.clone(), vec![], None, format!("card:{id}"))
         }
         "page" => {
             let x = m.pages.iter().find(|x| x.id == id).ok_or_else(missing)?;
@@ -222,6 +226,45 @@ pub fn panels(plugins: &[Plugin], project: Option<&Path>) -> Vec<PanelInfo> {
                         manifest::Height::Word(_) => None,
                     },
                     frame: frame_info(plugins, &m.id, "panel", &x.id).ok()?,
+                })
+            })
+        })
+        .collect()
+}
+
+/// A card in a project's Overview
+#[derive(Serialize)]
+pub struct CardInfo {
+    pub plugin: String,
+    pub id: String,
+    pub name: String,
+    /// null: its page's height; a number of lines
+    pub lines: Option<u32>,
+    /// The plugin's tab Enter shows (when the card's keys don't bind Enter)
+    pub opens: Option<String>,
+    pub frame: FrameInfo,
+}
+
+/// The cards a project's Overview shows: those of the plugins that apply to it, in the
+/// plugins' order
+pub fn cards(plugins: &[Plugin], project: &Path) -> Vec<CardInfo> {
+    plugins
+        .iter()
+        .filter(|p| p.works())
+        .filter_map(|p| p.manifest.as_ref())
+        .filter(|m| applies(m, project))
+        .flat_map(|m| {
+            m.cards.iter().filter_map(|x| {
+                Some(CardInfo {
+                    plugin: m.id.clone(),
+                    id: x.id.clone(),
+                    name: x.name.clone(),
+                    lines: match x.height {
+                        manifest::Height::Lines(n) => Some(n),
+                        manifest::Height::Word(_) => None,
+                    },
+                    opens: x.opens.clone(),
+                    frame: frame_info(plugins, &m.id, "card", &x.id).ok()?,
                 })
             })
         })

@@ -25,6 +25,10 @@ struct Details {
     readme: Option<String>,
     /// The plugin tabs turned on for the project
     tabs: Vec<TabInfo>,
+    /// The tab shown last ("overview", "readme" or "<plugin>:<tab>")
+    last_tab: Option<String>,
+    /// How each action ran last, by its label
+    last_runs: HashMap<String, settings::LastRun>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +90,8 @@ fn details(app: &AppHandle, path: &str) -> Details {
         problems,
         readme: projects::readme(Path::new(path)),
         tabs: s.tabs.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
+        last_tab: s.last_tab.get(path).cloned(),
+        last_runs: s.last_runs.get(path).cloned().unwrap_or_default(),
     }
 }
 
@@ -137,6 +143,24 @@ async fn edit_projects(app: AppHandle, change: String, path: String) -> Result<P
         _ => {}
     })?;
     Ok(project_list(&s))
+}
+
+/// Remember the tab shown in a project, to open on it next time
+#[tauri::command]
+async fn remember_tab(app: AppHandle, path: String, tab: String) -> Result<(), String> {
+    settings::update(&app, |s| {
+        s.last_tab.insert(path, tab);
+    })
+    .map(|_| ())
+}
+
+/// Remember how an action ran, for the Overview's Last runs
+#[tauri::command]
+async fn remember_run(app: AppHandle, path: String, label: String, run: settings::LastRun) -> Result<(), String> {
+    settings::update(&app, |s| {
+        s.last_runs.entry(path).or_default().insert(label, run);
+    })
+    .map(|_| ())
 }
 
 /// An image a README shows, from the project's folder, as a data URL
@@ -521,6 +545,12 @@ async fn plugin_panels(app: AppHandle, path: Option<String>) -> Vec<plugins::Pan
     plugins::panels(&plugins::load(&settings::load(&app).plugins), path.as_deref().map(Path::new))
 }
 
+/// The cards of a project's Overview, from its plugins
+#[tauri::command]
+async fn plugin_cards(app: AppHandle, path: String) -> Vec<plugins::CardInfo> {
+    plugins::cards(&plugins::load(&settings::load(&app).plugins), Path::new(&path))
+}
+
 /// The official plugins, and whether the first start offered them already
 #[derive(Serialize)]
 struct CatalogAnswer {
@@ -701,7 +731,7 @@ pub fn run() {
             let loaded = plugins::load(&settings::load(ctx.app_handle()).plugins);
             plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
         })
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, remember_tab, remember_run, plugin_cards, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
             plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, plugin_statuses, open_devtools,
             check_update, install_update, restart, readme_image,

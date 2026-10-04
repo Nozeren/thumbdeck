@@ -9,8 +9,11 @@ write code.
 
 - **Projects** on the left: the git repositories in `~/dev`, `~/projects` and your home folder,
   with their branch and a dot when they have uncommitted changes.
-- **The center**: the project's README, its tabs (Git, Logs, Agents, Pull requests, … from
-  plugins) and the output of what you ran, with a tab for each at the bottom.
+- **The center**: the project's Overview, its README, its tabs (Git, Logs, Agents, Pull
+  requests, … from plugins) and the output of what you ran, with a tab for each at the bottom.
+  The **Overview** shows where the project stands, in cards: how each Toolkit action ran last,
+  and cards from plugins (Git's: the uncommitted files and the last commits). A project opens
+  on the tab you showed last in it.
 - **Running and Toolkit** on the right: what you started, and buttons for the project's
   commands.
 - **Plugins** below the projects: plugins with a view of their own (`Ctrl+p`).
@@ -94,7 +97,7 @@ example's placeholder. Values stay hidden unless you ask; `a` adds the missing k
 
 **Notes**: a scratchpad and checklist for each project, kept by thumbdeck (not in the repo).
 
-Plugins with a **view** of their own are listed below the projects: `Ctrl+p`, then Enter, shows
+Plugins with a **view** of their own are listed below the projects: `Ctrl+p` (or `Ctrl+j`), then Enter, shows
 one in the center. **Panels** from plugins sit under the Toolkit. The official views:
 
 - **Calendar**: your calendars' coming events (iCal links) or the whole month (`m`), what's next
@@ -127,23 +130,34 @@ another: octopus, crab, keycap, ghost, axolotl, or none.
 
 ## Keys
 
-`?` lists them wherever you are. On the main page:
+`?` lists them wherever you are. The main page is panes, like nvim splits or tmux panes:
+Projects and Plugins on the left, the center, Running and Toolkit on the right. The one with
+the keyboard has a green border, and its name is at the start of the bottom line.
 
-| key | |
+| key | everywhere |
 | --- | --- |
-| `j` / `k`, `g` / `G` | next / previous project, first / last |
-| `/` | filter projects (Enter opens the first match) |
-| Enter or `o` | open the project in tmux |
+| `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | the pane to the left / below / above / right (from a plugin's tab too) |
 | Space, then a letter | run a Toolkit button (the letters show on the buttons) |
-| `1`, `2`, … | the tabs at the bottom: README, the project's tabs, its runs |
+| `1`, `2`, … | the tabs at the bottom: Overview, README, the project's tabs, its runs |
+| `Ctrl+b`, then `n` / `p` | the next / previous tab, as in tmux (the keyboard stays where it is) |
 | `]` / `[` | next / previous run |
-| `p` / `x` | pin / hide the project |
 | `a` | add your own action |
 | `s` | stop the command shown |
 | `z` | expand the center / back |
 | `,` | settings: plugins |
-| `Ctrl+p` | the Plugins pane: `j` / `k`, Enter shows a plugin's view |
-| Esc | close menus and forms, leave the filter |
+| `Ctrl+p` | the Plugins pane |
+| Esc | close menus and forms, leave the filter; then back to Projects |
+
+In each pane, `j` / `k` move (`g` / `G`: first / last) and `q` goes back to Projects:
+
+| pane | keys |
+| --- | --- |
+| Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter (Enter opens the first match) · `p` / `x` pin / hide |
+| Plugins | `l` or Enter shows a plugin's view |
+| Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab) · the card's own keys (`?` lists them) |
+| Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page |
+| Running | `l` or Enter shows its output · `s` stops it |
+| Toolkit | Enter runs the button · `e` edits your own action |
 
 A tab you open (or click in) takes the keyboard, and every tab follows the same rules (plugins
 that don't aren't loaded):

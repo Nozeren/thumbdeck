@@ -38,6 +38,8 @@ struct Raw {
     #[serde(default)]
     panel: Vec<PanelDef>,
     #[serde(default)]
+    card: Vec<CardDef>,
+    #[serde(default)]
     page: Vec<PageDef>,
     view: Option<ViewDef>,
     #[serde(default)]
@@ -63,6 +65,7 @@ pub struct Manifest {
     pub generate: Vec<Generate>,
     pub tabs: Vec<TabDef>,
     pub panels: Vec<PanelDef>,
+    pub cards: Vec<CardDef>,
     pub pages: Vec<PageDef>,
     pub view: Option<ViewDef>,
     pub settings: Vec<Field>,
@@ -106,6 +109,22 @@ pub struct PanelDef {
     #[serde(default)]
     pub height: Height,
 }
+
+/// A card in a project's Overview
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct CardDef {
+    pub id: String,
+    pub name: String,
+    pub page: String,
+    #[serde(default)]
+    pub height: Height,
+    /// The plugin's tab Enter shows (when the card's keys don't bind Enter)
+    pub opens: Option<String>,
+}
+
+/// Keys a card can't bind: they move between the Overview's cards
+pub const CARD_MOVES: &[&str] = &["h", "j", "k", "l", "g", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"];
 
 fn project_scope() -> String {
     "project".into()
@@ -383,6 +402,7 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
     };
     ids("tab", raw.tab.iter().map(|t| (t.id.as_str(), t.page.as_str())).collect(), &mut out);
     ids("panel", raw.panel.iter().map(|p| (p.id.as_str(), p.page.as_str())).collect(), &mut out);
+    ids("card", raw.card.iter().map(|c| (c.id.as_str(), c.page.as_str())).collect(), &mut out);
     ids("page", raw.page.iter().map(|p| (p.id.as_str(), p.page.as_str())).collect(), &mut out);
     for t in &raw.tab {
         if t.name.trim().is_empty() {
@@ -399,6 +419,16 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
         }
         if matches!(&p.height, Height::Word(w) if w != "auto") {
             out.push(format!("panel {}: height is \"auto\" or a number of lines", p.id));
+        }
+    }
+    for c in &raw.card {
+        if matches!(&c.height, Height::Word(w) if w != "auto") {
+            out.push(format!("card {}: height is \"auto\" or a number of lines", c.id));
+        }
+        if let Some(tab) = &c.opens {
+            if !raw.tab.iter().any(|t| &t.id == tab) {
+                out.push(format!("card {}: opens \"{tab}\", which isn't one of the plugin's tabs", c.id));
+            }
         }
     }
     if let Some(v) = &raw.view {
@@ -426,12 +456,18 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
         let surface_exists = match map.surface.split_once(':') {
             Some(("tab", id)) => raw.tab.iter().any(|t| t.id == id),
             Some(("panel", id)) => raw.panel.iter().any(|p| p.id == id),
+            Some(("card", id)) => raw.card.iter().any(|c| c.id == id),
             Some(("page", id)) => raw.page.iter().any(|p| p.id == id),
             None if map.surface == "view" => raw.view.is_some(),
             _ => false,
         };
         if !surface_exists {
-            out.push(format!("keys.{name}: surface \"{}\" isn't one of the plugin's (tab:<id>, panel:<id>, page:<id> or view)", map.surface));
+            out.push(format!("keys.{name}: surface \"{}\" isn't one of the plugin's (tab:<id>, panel:<id>, card:<id>, page:<id> or view)", map.surface));
+        }
+        if map.surface.starts_with("card:") {
+            for k in map.bindings.iter().flat_map(|b| &b.keys).filter(|k| CARD_MOVES.contains(&k.as_str())) {
+                out.push(format!("keys.{name}: on a card, {k} is thumbdeck's (it moves between the Overview's cards)"));
+            }
         }
     }
 
@@ -452,6 +488,7 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
         generate: raw.generate,
         tabs: raw.tab,
         panels: raw.panel,
+        cards: raw.card,
         pages: raw.page,
         view: raw.view,
         settings: raw.settings,
@@ -507,6 +544,9 @@ impl Manifest {
         }
         if !self.panels.is_empty() {
             out.push(format!("{} on the right: {}", if self.panels.len() == 1 { "a panel" } else { "panels" }, names(self.panels.iter().map(|p| p.name.as_str()).collect())));
+        }
+        if !self.cards.is_empty() {
+            out.push(format!("{} in the Overview: {}", if self.cards.len() == 1 { "a card" } else { "cards" }, names(self.cards.iter().map(|c| c.name.as_str()).collect())));
         }
         if !self.pages.is_empty() {
             out.push(if self.pages.len() == 1 { "a full-window page".into() } else { format!("{} full-window pages", self.pages.len()) });
@@ -703,6 +743,15 @@ name = "P"
 page = "a.html"
 scope = "everywhere"
 height = "tall"
+[[card]]
+id = "c"
+name = "C"
+page = "a.html"
+opens = "nowhere"
+[keys.c]
+name = "C"
+surface = "card:c"
+bindings = [{ keys = ["j"], action = "down", does = "down" }]
 [[settings]]
 key = "n"
 label = "N"
@@ -713,7 +762,7 @@ key = "c"
 label = "C"
 type = "colour"
 "#));
-        let want = ["two tabs have the id t", "thumbdeck's own field", "has no choices", "scope is", "height is", "default doesn't fit", "the types are"];
+        let want = ["two tabs have the id t", "thumbdeck's own field", "has no choices", "scope is", "height is", "opens \"nowhere\"", "default doesn't fit", "the types are", "on a card, j is thumbdeck's"];
         assert_eq!(p.len(), want.len(), "{p:?}");
         for (got, want) in p.iter().zip(want) {
             assert!(got.contains(want), "{got:?} should say {want:?}");

@@ -18,7 +18,7 @@
     info: FrameInfo;
     /** Stable name of this frame in the page (for badges) */
     frameKey: string;
-    surface: "tab" | "panel" | "page" | "view";
+    surface: "tab" | "panel" | "card" | "page" | "view";
     surfaceId: string;
     project: { path: string; name: string; branch: string | null } | null;
     setup: any;
@@ -40,7 +40,7 @@
     page?: string;
     /** Take the focus when loaded (a setup page in a dialog) */
     autofocus?: boolean;
-    /** A panel: how many lines tall (null: as tall as its page) */
+    /** A panel or a card: how many lines tall (null: as tall as its page) */
     lines?: number | null;
     /** A page's data (from openPage) */
     data?: unknown;
@@ -244,10 +244,11 @@
     lastProject = path;
   });
 
-  // A panel's height: its page's (up to half the column), or a number of lines
+  // A panel's or a card's height: its page's (up to about half the window), or a number of lines
   let contentHeight = $state(0);
+  const small = $derived(surface === "panel" || surface === "card");
   const panelHeight = $derived(
-    surface !== "panel" ? null : lines ? `${lines * 18 + 8}px` : `min(${Math.max(contentHeight, 24)}px, 45vh)`,
+    !small ? null : lines ? `${lines * 18 + 8}px` : `min(${Math.max(contentHeight, 24)}px, 45vh)`,
   );
 
   let lastSetup: string | null = null;
@@ -291,15 +292,14 @@
   });
 </script>
 
-<div class="frame" class:active class:hidden={!visible} class:panel={surface === "panel"} style:height={panelHeight}>
+<div class="frame" class:active class:hidden={!visible} class:panel={small} style:height={panelHeight}>
   <iframe bind:this={iframe} {src} title={info.name} allow="clipboard-read; clipboard-write"
           onload={() => autofocus && iframe?.focus()}></iframe>
   {#if help}<KeyHelp map={keymap()} note={info.plugin_name} />{/if}
 </div>
 
 <style>
-  .frame { position: relative; flex: 1; min-height: 0; display: flex; border-top: 2px solid transparent; }
-  .frame.active { border-top-color: var(--orange); }
+  .frame { position: relative; flex: 1; min-height: 0; display: flex; }
   .frame.hidden { display: none; }
   .frame.panel { flex: none; border-top: 0; }
   iframe { flex: 1; border: 0; width: 100%; height: 100%; background: var(--bg0); }
