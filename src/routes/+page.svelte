@@ -1069,6 +1069,11 @@
         <Overview bind:this={overviewRef} project={selected} {details} runs={projectRuns} {cards} visible={overviewShown}
                   active={pane === "center"} {now} thumbdeck={version} {host} {badges} {reloads} {say}
                   openReview={(r) => (review = r)} toToolkit={() => (pane = "toolkit")} onFocus={() => (pane = "center")}
+                  hideCard={async (card, hide) => {
+                    const path = selected?.path;
+                    const d = await invoke<Details>("hide_card", { path, card, hide });
+                    if (selected?.path === path) details = d;
+                  }}
                   openTab={(plugin, tab) => {
                     const i = details?.tabs.findIndex((t) => t.plugin === plugin && t.tab === tab) ?? -1;
                     if (i >= 0) showTab(i);
@@ -1110,10 +1115,6 @@
             </div>
           {/if}
         </span>
-        <span class="spacer"></span>
-        {#if keysToTab && tabShown && details && shownTab !== null}
-          <span class="keys-hint">keys go to {details.tabs[shownTab].title} · Esc gives them back</span>
-        {/if}
       </nav>
     {:else}
       <p class="empty">No projects found in ~/dev, ~/projects or your home folder.</p>
@@ -1435,7 +1436,6 @@
   .ppanel h2 { margin-bottom: 6px; }
   .plugin-page { position: fixed; inset: 0 0 22px 0; z-index: 40; background: var(--bg0); display: flex; }
   .tbadge { margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--bg3); color: var(--fg); font-size: 10.5px; }
-  .keys-hint { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--bg1); color: var(--grey); font: 11px var(--mono); }
   .readme { padding: 8px 28px 28px; overflow: auto; max-width: 860px; }
   .readme :global(img) { max-width: 100%; height: auto; border-radius: 6px; }
   .readme :global(h1), .readme :global(h2) { font-family: var(--mono); border-bottom: 1px solid var(--bg2); padding-bottom: 6px; }

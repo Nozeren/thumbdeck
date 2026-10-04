@@ -61,6 +61,7 @@ export const OVERVIEW: Keymap = {
     bind(["h", "ArrowLeft"], "left", "left"),
     bind(["l", "ArrowRight"], "right", "right"),
     bind("Enter", "press", "open the card (Last runs: the Toolkit; a plugin's: its tab)"),
+    bind("x", "hide", "hide the card in this project (hidden ones are listed below the cards)"),
     bind("q", "leave", "back to the projects"),
   ],
 };

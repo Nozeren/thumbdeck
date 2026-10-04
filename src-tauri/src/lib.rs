@@ -29,6 +29,8 @@ struct Details {
     last_tab: Option<String>,
     /// How each action ran last, by its label
     last_runs: HashMap<String, settings::LastRun>,
+    /// Overview cards hidden in the project ("runs", or "<plugin>:<card>")
+    hidden_cards: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +94,7 @@ fn details(app: &AppHandle, path: &str) -> Details {
         tabs: s.tabs.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
         last_tab: s.last_tab.get(path).cloned(),
         last_runs: s.last_runs.get(path).cloned().unwrap_or_default(),
+        hidden_cards: s.hidden_cards.get(path).cloned().unwrap_or_default(),
     }
 }
 
@@ -152,6 +155,19 @@ async fn remember_tab(app: AppHandle, path: String, tab: String) -> Result<(), S
         s.last_tab.insert(path, tab);
     })
     .map(|_| ())
+}
+
+/// Hide an Overview card in a project, or show it again
+#[tauri::command]
+async fn hide_card(app: AppHandle, path: String, card: String, hide: bool) -> Result<Details, String> {
+    settings::update(&app, |s| {
+        let list = s.hidden_cards.entry(path.clone()).or_default();
+        list.retain(|c| c != &card);
+        if hide {
+            list.push(card);
+        }
+    })?;
+    Ok(details(&app, &path))
 }
 
 /// Remember how an action ran, for the Overview's Last runs
@@ -731,7 +747,7 @@ pub fn run() {
             let loaded = plugins::load(&settings::load(ctx.app_handle()).plugins);
             plugins::frame::serve(&request, |id| plugins::find(&loaded, id).map(|(p, _)| p.folder.clone()))
         })
-        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, remember_tab, remember_run, plugin_cards, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
+        .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, remember_tab, remember_run, plugin_cards, hide_card, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
             plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, plugin_statuses, open_devtools,
             check_update, install_update, restart, readme_image,

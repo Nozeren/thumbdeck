@@ -29,6 +29,8 @@ pub struct Settings {
     pub last_tab: HashMap<String, String>,
     /// How each action ran last, per project path and action label (the Overview's Last runs)
     pub last_runs: HashMap<String, HashMap<String, LastRun>>,
+    /// Overview cards you hid, per project path ("runs", or "<plugin>:<card>")
+    pub hidden_cards: HashMap<String, Vec<String>>,
     /// The character in the top bar ("octopus", "crab", ...; empty: the octopus; "none": none)
     pub avatar: String,
     /// Installed plugins, in the order they were installed
@@ -137,7 +139,7 @@ impl Default for Settings {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
+        Settings { roots, added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), hidden_cards: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 }
 
@@ -254,7 +256,7 @@ mod tests {
     }
 
     fn empty() -> Settings {
-        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
+        Settings { roots: vec![], added: vec![], hidden: vec![], pinned: vec![], last: None, custom: HashMap::new(), hidden_actions: HashMap::new(), tabs: HashMap::new(), last_tab: HashMap::new(), last_runs: HashMap::new(), hidden_cards: HashMap::new(), avatar: String::new(), plugins: vec![], plugin_settings: HashMap::new(), catalog_offered: false }
     }
 
     #[test]

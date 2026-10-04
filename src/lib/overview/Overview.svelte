@@ -13,7 +13,7 @@
   import { OVERVIEW } from "../keys/maps.ts";
   import { ago, duration } from "./time.ts";
 
-  let { project, details, runs, cards: pluginCards, visible, active, now, thumbdeck, host, badges, reloads, say, openReview, openTab, toToolkit, onFocus }: {
+  let { project, details, runs, cards: pluginCards, visible, active, now, thumbdeck, host, badges, reloads, say, openReview, openTab, toToolkit, onFocus, hideCard }: {
     project: { path: string; name: string; branch: string | null };
     details: Details;
     /** The project's runs, newest first */
@@ -37,13 +37,21 @@
     toToolkit: () => void;
     /** A click in a card: the center gets the keyboard */
     onFocus: () => void;
+    /** Hide a card in this project ("runs" or "<plugin>:<card>"), or show it again */
+    hideCard: (id: string, hide: boolean) => void;
   } = $props();
 
-  type Card = { kind: "runs" } | { kind: "plugin"; info: CardInfo; key: string };
-  const cards = $derived<Card[]>([
-    ...(details.actions.length ? [{ kind: "runs" } as const] : []),
-    ...pluginCards.map((info) => ({ kind: "plugin" as const, info, key: `card:${info.plugin}:${info.id}:${project.path}` })),
+  type Card = { kind: "runs"; id: string; name: string } | { kind: "plugin"; id: string; name: string; info: CardInfo; key: string };
+  // Every card the project could show, and the ones you didn't hide (x)
+  const all = $derived<Card[]>([
+    ...(details.actions.length ? [{ kind: "runs", id: "runs", name: "Last runs" } as const] : []),
+    ...pluginCards.map((info) => ({
+      kind: "plugin" as const, id: `${info.plugin}:${info.id}`, name: info.name, info, key: `card:${info.plugin}:${info.id}:${project.path}`,
+    })),
   ]);
+  const cards = $derived(all.filter((c) => !details.hidden_cards.includes(c.id)));
+  const hidden = $derived(all.filter((c) => details.hidden_cards.includes(c.id)));
+  let showHidden = $state(false);
   let cursor = $state(0);
   $effect(() => {
     if (cursor >= cards.length) cursor = Math.max(0, cards.length - 1);
@@ -97,6 +105,7 @@
     const card = cards[cursor];
     if (card?.kind === "plugin" && cardKeys(card) && actionFor(cardKeys(card)!, e)) return frameRefs[card.key]!.handleKey(e);
     if (action === "press") return press(card), true;
+    if (action === "hide" && card) return hideCard(card.id, true), say(`${card.name} hidden in this project: it's listed below the cards`), true;
     return false;
   }
 
@@ -114,7 +123,7 @@
 
 <div class="overview" class:hidden={!visible}>
   {#if !cards.length}
-    <p class="empty">Nothing here yet: add your own action in the Toolkit (a), or plugins with cards (Git) in Settings › Plugins.</p>
+    <p class="empty">{hidden.length ? "Every card is hidden in this project: bring them back below." : "Nothing here yet: add your own action in the Toolkit (a), or plugins with cards (Git) in Settings › Plugins."}</p>
   {/if}
   <div class="grid" bind:this={gridEl}>
     {#each cards as card, i (card.kind === "plugin" ? `${card.key}#${reloads[card.info.plugin] ?? 0}` : card.kind)}
@@ -138,6 +147,18 @@
       </section>
     {/each}
   </div>
+  {#if hidden.length}
+    <button class="fold" onclick={() => (showHidden = !showHidden)}>
+      <span class="caret">{showHidden ? "▾" : "▸"}</span>hidden cards ({hidden.length})
+    </button>
+    {#if showHidden}
+      <ul class="hidden-list">
+        {#each hidden as c (c.id)}
+          <li><span class="label">{c.name}</span><button class="icon" title="Show again" onclick={() => hideCard(c.id, false)}>↺</button></li>
+        {/each}
+      </ul>
+    {/if}
+  {/if}
 </div>
 
 <style>
@@ -157,4 +178,11 @@
   .st.running { color: var(--running); } .st.done { color: var(--green); } .st.failed { color: var(--red); }
   .when { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--grey); font-size: 11px; }
   .empty { color: var(--grey); }
+  .fold { margin-top: 14px; padding: 2px 4px; border: 0; background: none; color: var(--grey); font: 11.5px var(--mono); cursor: pointer; }
+  .fold:hover { color: var(--fg); }
+  .caret { display: inline-block; width: 12px; }
+  .hidden-list { margin: 4px 0 0 16px; }
+  .hidden-list li { color: var(--grey); }
+  .icon { padding: 0 6px; border: 0; background: none; color: var(--grey); cursor: pointer; }
+  .icon:hover { color: var(--fg); }
 </style>

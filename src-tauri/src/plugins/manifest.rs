@@ -123,8 +123,8 @@ pub struct CardDef {
     pub opens: Option<String>,
 }
 
-/// Keys a card can't bind: they move between the Overview's cards
-pub const CARD_MOVES: &[&str] = &["h", "j", "k", "l", "g", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"];
+/// Keys a card can't bind: they move between the Overview's cards, and x hides one
+pub const CARD_KEYS: &[&str] = &["h", "j", "k", "l", "g", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "x"];
 
 fn project_scope() -> String {
     "project".into()
@@ -465,8 +465,8 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
             out.push(format!("keys.{name}: surface \"{}\" isn't one of the plugin's (tab:<id>, panel:<id>, card:<id>, page:<id> or view)", map.surface));
         }
         if map.surface.starts_with("card:") {
-            for k in map.bindings.iter().flat_map(|b| &b.keys).filter(|k| CARD_MOVES.contains(&k.as_str())) {
-                out.push(format!("keys.{name}: on a card, {k} is thumbdeck's (it moves between the Overview's cards)"));
+            for k in map.bindings.iter().flat_map(|b| &b.keys).filter(|k| CARD_KEYS.contains(&k.as_str())) {
+                out.push(format!("keys.{name}: on a card, {k} is thumbdeck's (h/j/k/l/g/G move between the Overview's cards, x hides one)"));
             }
         }
     }

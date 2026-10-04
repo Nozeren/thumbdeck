@@ -61,6 +61,8 @@ export interface Details {
   last_tab: string | null;
   /** How each action ran last, by its label */
   last_runs: Record<string, LastRun>;
+  /** Overview cards hidden in the project ("runs", or "<plugin>:<card>") */
+  hidden_cards: string[];
 }
 
 /** How an action ran last */

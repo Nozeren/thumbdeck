@@ -12,7 +12,8 @@ write code.
 - **The center**: the project's Overview, its README, its tabs (Git, Logs, Agents, Pull
   requests, … from plugins) and the output of what you ran, with a tab for each at the bottom.
   The **Overview** shows where the project stands, in cards: how each Toolkit action ran last,
-  and cards from plugins (Git's: the uncommitted files and the last commits). A project opens
+  and cards from plugins (Git's: the uncommitted files and the last commits; Notes': the open
+  checklist items). A project opens
   on the tab you showed last in it.
 - **Running and Toolkit** on the right: what you started, and buttons for the project's
   commands.
@@ -154,7 +155,7 @@ In each pane, `j` / `k` move (`g` / `G`: first / last) and `q` goes back to Proj
 | --- | --- |
 | Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter (Enter opens the first match) · `p` / `x` pin / hide |
 | Plugins | `l` or Enter shows a plugin's view |
-| Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab) · the card's own keys (`?` lists them) |
+| Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab; Notes: the Notes tab) · `x` hides a card in this project (bring it back from "hidden cards" below them) · the card's own keys (`?` lists them) |
 | Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page |
 | Running | `l` or Enter shows its output · `s` stops it |
 | Toolkit | Enter runs the button · `e` edits your own action |
