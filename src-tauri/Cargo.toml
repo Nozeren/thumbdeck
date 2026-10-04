@@ -1,6 +1,6 @@
 [package]
 name = "thumbdeck"
-version = "0.5.1"
+version = "0.6.0"
 description = "Your projects and their commands, one click away"
 authors = ["Nozeren"]
 license = "MIT"
