@@ -199,8 +199,8 @@ signature is checked first.
 ## Updates
 
 thumbdeck looks for a new release when it starts, and every few hours. When there is one, its
-version shows next to the title: click it to see what's new and update. **+ › Check for
-updates** asks right away. Releases are signed, and a download that isn't signed with
+version shows next to the title: click it to see what's new and update. The **↻** button
+beside ⚙ asks right away. Releases are signed, and a download that isn't signed with
 thumbdeck's key is refused. Builds from source update the same way once a newer release
 exists; dev builds never do.
 

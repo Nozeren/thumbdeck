@@ -679,14 +679,17 @@
   let updateState = $state<"idle" | "installing" | "installed">("idle");
   let updateError = $state("");
 
+  let checking = $state(false);
   async function checkForUpdates() {
-    addMenu = false;
+    checking = true;
     try {
       update = await invoke<Update | null>("check_update");
       if (update) updateDialog = true;
       else say("thumbdeck is up to date");
     } catch (err) {
       say(String(err), true);
+    } finally {
+      checking = false;
     }
   }
 
@@ -933,6 +936,7 @@
       {/if}
       <button class="settings-btn" title="Settings (,){Object.keys(pluginUpdates).length ? ` · ${Object.keys(pluginUpdates).length} plugin update${Object.keys(pluginUpdates).length === 1 ? '' : 's'}` : ''}"
               onclick={openSettings}>⚙{#if Object.keys(pluginUpdates).length}<span class="menu-new">↑{Object.keys(pluginUpdates).length}</span>{/if}</button>
+      <button class="header-btn" title="Check for a newer thumbdeck" disabled={checking} onclick={checkForUpdates}>{checking ? "…" : "↻"}</button>
     </header>
     <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey}
            onfocus={() => (filtering = true)} onblur={() => (filtering = false)} />
@@ -945,7 +949,6 @@
             <div class="menu">
               <button onclick={() => pickFolder("add")}>Add project…</button>
               <button onclick={() => pickFolder("add-root")}>Add folder to scan…</button>
-              <button onclick={checkForUpdates}>Check for updates</button>
             </div>
           {/if}
         </span>
@@ -1356,8 +1359,10 @@
   .app { font: 700 22px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
   .update-dot { padding: 1px 8px; border-radius: 10px; background: var(--bg1); color: var(--green); font: 600 11px var(--mono); }
   .update-dot:hover { background: var(--bg2); }
-  .settings-btn { margin-left: auto; padding: 2px 7px; border-radius: 8px; background: none; color: var(--grey); font: 16px var(--sans); }
-  .settings-btn:hover { background: var(--bg1); color: var(--fg); }
+  .settings-btn { margin-left: auto; }
+  .settings-btn, .header-btn { padding: 2px 7px; border-radius: 8px; background: none; color: var(--grey); font: 16px var(--sans); }
+  .settings-btn:hover, .header-btn:hover { background: var(--bg1); color: var(--fg); }
+  .header-btn { margin-left: -6px; }
   .settings-btn .menu-new { margin-left: 3px; font: 600 11px var(--mono); }
   .notes { max-height: 40vh; padding: 0 4px; font-size: 13px; }
   .filter { width: 100%; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: 13px var(--mono); outline: none; }
