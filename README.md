@@ -57,10 +57,11 @@ thumbdeck closes; pressing one again while it runs doesn't start it twice.
 ## Plugins
 
 thumbdeck's tabs, Toolkit buttons, panels and views come from plugins, installed in **Settings**
-(`,`, or **+ › Settings…**) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
+(`,`, or the **⚙** button beside thumbdeck's name) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
 from any git URL, or from a folder you're working on. The first start offers the official ones.
 thumbdeck looks for newer releases of them when it starts, and marks them (↑) in Settings,
-where you update them, turn them off, reorder them, or read their log. A plugin runs with your
+where they're listed by name and you update them, turn them off, set the order of their panels,
+or read their log. A plugin runs with your
 rights, like an editor plugin: install the ones you trust.
 
 Writing one: the [guide](https://github.com/Nozeren/thumbdeck-plugins/blob/main/GUIDE.md) and

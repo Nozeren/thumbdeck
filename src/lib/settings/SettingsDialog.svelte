@@ -56,6 +56,10 @@
   }
 
   const plugin = $derived(plugins.find((p) => p.id === shown) ?? null);
+  // The list: by name. Their panels keep their own order (plugins': ↑ ↓ under a plugin)
+  const byName = (list: PluginInfo[]) => [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
+  const listed = $derived(byName(plugins));
+  const place = $derived(plugin ? plugins.findIndex((p) => p.id === plugin.id) : -1);
   const changed = $derived(!!plugin && JSON.stringify(values) !== JSON.stringify(plugin.settings));
 
   function show(id: string) {
@@ -148,7 +152,7 @@
   onMount(async () => {
     plugins = await invoke<PluginInfo[]>("plugins_list");
     loaded = true;
-    show(plugins[0]?.id ?? "add");
+    show(byName(plugins)[0]?.id ?? "add");
   });
 
   const status = (p: PluginInfo) => (p.problems.length ? "broken" : p.enabled ? "on" : "off");
@@ -161,7 +165,7 @@
     <div class="body">
       <nav class="list">
         <h3>Plugins</h3>
-        {#each plugins as p (p.id)}
+        {#each listed as p (p.id)}
           <button class="item" class:on={shown === p.id} onclick={() => show(p.id)}>
             <span class="state {status(p)}" title={{ on: "on", off: "off", broken: "not loaded" }[status(p)]}>
               {status(p) === "broken" ? "!" : status(p) === "on" ? "●" : "○"}
@@ -269,9 +273,10 @@
           <div class="foot">
             <span class="hint">{plugin.folder}</span>
             <span class="spacer"></span>
-            <button class="ghost small" title="Earlier in the list (panels follow this order)" disabled={!!busy || plugins[0]?.id === plugin.id}
+            <span class="hint" title="Where its panels go, among the plugins' panels">Panel order {place + 1} of {plugins.length}</span>
+            <button class="ghost small" title="Its panels earlier" disabled={!!busy || place <= 0}
                     onclick={() => edit(plugin.id, "up")}>↑</button>
-            <button class="ghost small" title="Later in the list" disabled={!!busy || plugins.at(-1)?.id === plugin.id}
+            <button class="ghost small" title="Its panels later" disabled={!!busy || place === plugins.length - 1}
                     onclick={() => edit(plugin.id, "down")}>↓</button>
             <button class="ghost small" title="Open the web inspector, to look into its pages" onclick={() => invoke("open_devtools")}>Inspect</button>
             <button class="ghost danger" disabled={!!busy} onclick={() => remove(plugin)}>Remove</button>
