@@ -1,10 +1,11 @@
 # thumbdeck
 
 Desktop app (Tauri 2 + Svelte 5, Linux and macOS): projects (and the Plugins pane) on the left,
-the selected one's README / tabs / run output in the center (tabs at the top, in the header row; runs
-aren't tabs, one Output tab shows the run picked in Running), Running +
-Toolkit + plugin panels on the right. Tabs, Toolkit buttons, panels, views and pages all come
-from plugins.
+the selected one's Overview / README / plugin pages / run output in the center (no tab row: the
+header names what it shows), Running + Toolkit (its buttons, then the project's Pages: Overview,
+README, plugin tabs A–Z, + the addable ones) + plugin panels on the right; a view from the Plugins
+pane hides the right column. Plugin tabs ("pages"), Toolkit buttons, panels, views and plugin
+pages all come from plugins; plugins' icon.svg show beside them.
 The user reads everything in plain English; the README is the user-facing documentation.
 
 ## Map
@@ -35,7 +36,9 @@ The user reads everything in plain English; the README is the user-facing docume
 - `src/lib/keys/`: every place's keys in `maps.ts` (handlers switch on its actions; the ? help
   is drawn from it); `RULES` in `keys.ts` (a key means the same everywhere) is checked by
   `npm test`. `src/lib/StatusBar.svelte`: the bottom line (who has the keyboard, branch, messages)
-- `src/lib/review/`: the review page (diff parsing in `diff.ts`), opened by Git and PR tabs
+- `src/lib/review/`: the review page (diff parsing in `diff.ts`; rows, comment anchors, the file tree and
+  safe comment text in `review.ts`), opened by Git (read-only) and the Pull requests view (comments,
+  threads, the verdict: callbacks the plugin passes in `td.ui.openReview`, see `types.ts`)
 - `src/lib/overview/`: the Overview, the center's first tab: thumbdeck's Last runs card and the
   plugins' `[[card]]`s
 - `src/routes/+page.svelte`: the whole page (keys in `onKey`, help dialog, styles; shared dialog

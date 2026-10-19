@@ -163,10 +163,18 @@
         return ask(p.question, { title: info.plugin_name, kind: "warning", okLabel: p.yes ?? "Yes", cancelLabel: p.no ?? "No" });
       case "ui.openReview": {
         const diff = p.diff;
+        // A function of the plugin's (sent as { callback }), as a function here
+        const call = (f: { callback: number } | null | undefined) => (f ? (...args: unknown[]) => callFrame(f.callback, args) : undefined);
+        const acts = p.actions ?? {};
         openReview({
           title: p.title ?? "Changes", subtitle: p.subtitle, startFile: p.startFile,
           viewedKey: `plugin:${info.plugin}:${p.viewedKey ?? p.title}`,
           load: typeof diff === "string" ? async () => diff : () => callFrame(diff.callback),
+          file: call(p.file),
+          about: p.about ?? undefined,
+          actions: acts.threads || acts.submit || acts.reply || acts.resolve
+            ? { threads: call(acts.threads), submit: call(acts.submit), reply: call(acts.reply), resolve: call(acts.resolve) } as ReviewRequest["actions"]
+            : undefined,
         });
         return;
       }

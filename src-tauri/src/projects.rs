@@ -38,7 +38,7 @@ fn kind(dir: &Path, providers: &[Provider]) -> String {
 }
 
 /// A plugin's .svg icon as a data URL
-fn svg(file: &str) -> Option<String> {
+pub fn svg(file: &str) -> Option<String> {
     use base64::Engine;
     let bytes = std::fs::read(file).ok().filter(|b| b.len() < 256 * 1024)?;
     Some(format!("data:image/svg+xml;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))

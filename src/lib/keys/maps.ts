@@ -11,7 +11,7 @@ export const MAIN: Keymap = {
     bind(["Ctrl+h", "Ctrl+l"], "pane-side", "the pane to the left / right"),
     bind(["Ctrl+j", "Ctrl+k"], "pane-updown", "the pane below / above"),
     bind("Space", "toolkit", "toolkit: then the button's letter"),
-    bind("1–9", "tabs", "show a tab (1: Overview, 2: README), its keys go to it"),
+    bind("1–9", "tabs", "show a page (1 Overview, 2 README, then the project's A–Z), its keys go to it"),
     bind(["]", "["], "run", "next / previous run's output"),
     bind("s", "stop", "stop the shown run"),
     bind("a", "add", "add a toolkit action"),
@@ -94,7 +94,7 @@ export const KIT: Keymap = {
 /** After Ctrl+b, as in tmux */
 export const PREFIX: Keymap = {
   name: "Ctrl+b",
-  bindings: [bind("n", "next-tab", "the next tab"), bind("p", "previous-tab", "the previous tab"), bind("Escape", "leave", "never mind")],
+  bindings: [bind("n", "next-tab", "the next page"), bind("p", "previous-tab", "the previous page"), bind("Escape", "leave", "never mind")],
 };
 
 /** After Space: a letter runs its Toolkit button */
@@ -117,31 +117,64 @@ export const DIALOG: Keymap = {
 export const REVIEW: Keymap = {
   name: "REVIEW",
   bindings: [
+    ...MOVE,
+    bind(["d", "PageDown"], "page-down", "half a page down"),
+    bind(["u", "PageUp"], "page-up", "half a page up"),
     bind(["n", "N"], "change", "next / previous change (past the last: the next file)"),
-    bind("-", "files", "the file list: pick another file with j / k and l"),
+    bind(["t", "T"], "thread", "next / previous thread (in every file)"),
+    bind(["]", "["], "file", "next / previous file"),
+    bind("c", "comment", "comment on the line (or the selected lines)"),
+    bind("V", "select", "select lines (j / k extend), then c"),
+    bind("Enter", "press", "reply to the thread · show the hidden lines · comment on the selection"),
+    bind("z", "resolve", "resolve the thread (or show a resolved one)"),
     bind("x", "viewed", "mark the file viewed, on to the next"),
     bind("s", "split", "side by side ↔ one column"),
-    bind(["j", "ArrowDown"], "down", "scroll down"),
-    bind(["k", "ArrowUp"], "up", "scroll up"),
-    bind(["d", "Space", "PageDown"], "page-down", "a page down"),
-    bind(["u", "PageUp"], "page-up", "a page up"),
-    bind("g", "first", "top"),
-    bind("G", "last", "bottom"),
-    bind("r", "refresh", "read the changes again"),
-    bind(["q", "Escape", "h", "Backspace"], "leave", "back"),
+    bind("f", "whole", "the whole file ↔ only the changes"),
+    bind("i", "about", "about the pull request"),
+    bind("A", "approve", "approve (finish your review)"),
+    bind("R", "request-changes", "request changes (finish your review)"),
+    bind("P", "post", "post your review"),
+    bind("-", "files", "the file list: j / k show each file"),
+    bind("/", "filter", "filter the files"),
+    bind("o", "outside", "open it in the browser"),
+    bind("r", "refresh", "read the changes and comments again"),
+    bind(["q", "Escape"], "leave", "back (Esc first drops a selection)"),
     HELP,
   ],
 };
 
-/** The review page's file list (after -) */
+/** The review page's file list (after -): moving shows each file */
 export const REVIEW_FILES: Keymap = {
   name: "FILES",
   bindings: [
     ...MOVE,
-    bind(["l", "Enter"], "open", "open the file's changes"),
+    bind(["l", "Enter"], "open", "into the file's changes"),
     bind("x", "viewed", "mark the file viewed / not"),
+    bind("/", "filter", "filter the files"),
     bind(["h", "-", "q", "Escape", "Backspace"], "leave", "back to the changes"),
     HELP,
+  ],
+};
+
+/** Writing a comment on the review page */
+export const REVIEW_COMMENT: Keymap = {
+  name: "COMMENT",
+  bindings: [
+    bind("Ctrl+Enter", "send", "add it to your review (a reply: send it)"),
+    bind("Ctrl+g", "suggest", "suggest a change to the lines"),
+    bind("Escape", "leave", "cancel"),
+  ],
+};
+
+/** Finishing a review */
+export const REVIEW_POST: Keymap = {
+  name: "POST",
+  bindings: [
+    bind(["1", "2", "3"], "pick", "comment / approve / request changes"),
+    bind(["j", "ArrowDown"], "down", "the next choice"),
+    bind(["k", "ArrowUp"], "up", "the previous choice"),
+    bind("Ctrl+Enter", "send", "post the review"),
+    bind("Escape", "leave", "not yet"),
   ],
 };
 
@@ -155,4 +188,4 @@ export const PLUGINS: Keymap = {
   ],
 };
 
-export const ALL: Keymap[] = [MAIN, PROJECTS, PLUGINS, CENTER, RUNNING, KIT, OVERVIEW, PREFIX, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES];
+export const ALL: Keymap[] = [MAIN, PROJECTS, PLUGINS, CENTER, RUNNING, KIT, OVERVIEW, PREFIX, TOOLKIT, FILTER, DIALOG, REVIEW, REVIEW_FILES, REVIEW_COMMENT, REVIEW_POST];

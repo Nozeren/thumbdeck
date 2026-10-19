@@ -55,6 +55,8 @@ export interface Details {
   /** Toolkit packs that couldn't be used, and why */
   problems: string[];
   readme: string | null;
+  /** The plugin tabs the project could have (the Toolkit's + pages) */
+  addable: Addable[];
   /** The plugin tabs turned on for the project */
   tabs: TabInfo[];
   /** The tab shown last ("overview", "readme" or "<plugin>:<tab>") */
@@ -80,6 +82,8 @@ export interface Addable {
   id: string;
   name: string;
   description: string;
+  /** Its plugin's icon, as a data URL */
+  icon?: string | null;
 }
 
 /** A plugin's tab turned on for a project, with its setup */
@@ -96,6 +100,8 @@ export interface TabInfo extends Tab {
   frame?: import("./plugins/types.ts").FrameInfo;
   /** Why it can't show (its plugin is off, broken or gone) */
   missing?: string;
+  /** Its plugin's icon, as a data URL */
+  icon?: string | null;
 }
 
 export interface Run {

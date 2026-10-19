@@ -224,7 +224,12 @@
       close: () => tell("ui.close"),
       openReview(r) {
         const diff = typeof r.diff === "function" ? callback(r.diff) : String(r.diff ?? "");
-        tell("ui.openReview", { title: r.title, subtitle: r.subtitle, viewedKey: r.viewedKey, startFile: r.startFile, diff });
+        const fn = (f) => (typeof f === "function" ? callback(f) : null);
+        // A pull request's review: what can be done there (each a function of the plugin's)
+        const review = r.review ?? {};
+        const actions = { threads: fn(review.threads), submit: fn(review.submit), reply: fn(review.reply), resolve: fn(review.resolve) };
+        tell("ui.openReview", { title: r.title, subtitle: r.subtitle, viewedKey: r.viewedKey, startFile: r.startFile, diff,
+          file: fn(r.file), about: review.about ?? null, actions });
       },
       badge: (value) => tell("ui.badge", { value: value == null ? null : String(value) }),
       status: (text) => tell("ui.status", { text: text == null ? null : String(text) }),

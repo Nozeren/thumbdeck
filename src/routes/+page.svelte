@@ -5,7 +5,7 @@
   import { marked } from "marked";
   import { onMount, tick, untrack } from "svelte";
   import { ask, open } from "@tauri-apps/plugin-dialog";
-  import type { Action, Addable, CustomAction, Details, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
+  import type { Action, CustomAction, Details, Project, ProjectList, Run, Tab, TabInfo, Update } from "$lib/types";
   import type { CardInfo, CatalogEntry, FrameInfo, Host, PanelInfo, TabExports, View } from "$lib/plugins/types";
   import CatalogDialog from "$lib/plugins/CatalogDialog.svelte";
   import PluginFrame from "$lib/plugins/PluginFrame.svelte";
@@ -51,7 +51,6 @@
   // Close the + menu on a click anywhere else, or on Esc
   function closeMenuOutside(e: MouseEvent) {
     if (addMenu && addMenuEl && !addMenuEl.contains(e.target as Node)) addMenu = false;
-    if (tabMenu && tabMenuEl && !tabMenuEl.contains(e.target as Node)) tabMenu = false;
   }
 
   // A click in a pane gives it the keyboard (a click in a plugin's frame: see onActivate)
@@ -60,7 +59,6 @@
     if (p) pane = p as Pane;
   }
   // ------------------------------------------------------------ extension tabs
-  let available = $state<Addable[]>([]);
   // Plugin tab shown in the center (its index in details.tabs); null: the Overview or the README
   // (shownPage says which), or a run
   let shownTab = $state<number | null>(null);
@@ -74,8 +72,6 @@
   let pane = $state<Pane>("projects");
   // The center takes the whole window (z): more room for a log, a README, a run's output
   let wide = $state(false);
-  let tabMenu = $state(false);
-  let tabMenuEl = $state<HTMLElement | null>(null);
   let centerEl = $state<HTMLElement | null>(null);
   // Setup form for a tab: index null for a new one (saved on Add)
   let setupForm = $state<{ index: number | null; tab: TabInfo } | null>(null);
@@ -114,7 +110,7 @@
   const shownViewKey = $derived(shownView ? `${shownView}#${reloads[shownView] ?? 0}` : null);
 
   async function loadPluginViews() {
-    views = await invoke<View[]>("plugin_views");
+    views = (await invoke<View[]>("plugin_views")).sort((a, b) => a.name.localeCompare(b.name)); // A–Z
     // Statuses backends said before the page was listening
     const said = await invoke<Record<string, string | null>>("plugin_statuses");
     for (const [plugin, text] of Object.entries(said)) if (!(plugin in statuses)) statuses[plugin] = text;
@@ -226,17 +222,11 @@
   }
 
   async function addTab(id: string) {
-    tabMenu = false;
     try {
       setupForm = { index: null, tab: await invoke<TabInfo>("new_tab", { id }) };
     } catch (err) {
       say(String(err), true);
     }
-  }
-
-  async function openTabMenu() {
-    tabMenu = !tabMenu;
-    if (tabMenu && selected) available = await invoke<Addable[]>("tabs_available", { path: selected.path });
   }
 
   async function saveTab(change: "add" | "save" | "remove", setup: unknown = null) {
@@ -276,8 +266,6 @@
   let filterEl = $state<HTMLInputElement | null>(null);
   const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
 
-  // Projects in the order the tree shows them (each is in one section only)
-  const navOrder = $derived(sections.filter((sec) => sec.id !== "hidden").flatMap((sec) => sec.items));
 
   function move(delta: number | "first" | "last") {
     if (!navOrder.length) return;
@@ -294,7 +282,7 @@
   const lastInColumn: Pane[] = ["projects", "center", "toolkit"];
   function goPane(dir: "h" | "j" | "k" | "l") {
     const columns: Pane[][] = wide ? [[], ["center"], []]
-      : [views.length ? ["projects", "plugins"] : ["projects"], ["center"], ["running", "toolkit"]];
+      : [views.length ? ["projects", "plugins"] : ["projects"], ["center"], shownView ? [] : ["running", "toolkit"]];
     const c = columns.findIndex((col) => col.includes(pane));
     if (c < 0) return void (pane = "center");
     lastInColumn[c] = pane;
@@ -319,14 +307,14 @@
   // The Toolkit's buttons as rows, two to a row as the grid shows them (indices into kitOrder)
   const kitRows = $derived.by(() => {
     let i = 0;
-    return groups.flatMap(([, actions]) =>
-      Array.from({ length: Math.ceil(actions.length / 2) }, (_, r) => actions.slice(r * 2, r * 2 + 2).map(() => i++)),
+    return [...groups.map(([, actions]) => actions), pages].flatMap((list) =>
+      Array.from({ length: Math.ceil(list.length / 2) }, (_, r) => list.slice(r * 2, r * 2 + 2).map(() => i++)),
     );
   });
   // h / j / k / l on the Toolkit's grid: j / k keep the column when the row has one
   function kitMove(action: string) {
-    const last = kitOrder.length - 1;
-    if (action === "first" || action === "last") return moveCursor(kitCursor, kitOrder.length, action);
+    const last = kitTotal - 1;
+    if (action === "first" || action === "last") return moveCursor(kitCursor, kitTotal, action);
     const r = kitRows.findIndex((row) => row.includes(kitCursor));
     if (r < 0) return 0;
     const c = kitRows[r].indexOf(kitCursor);
@@ -345,16 +333,15 @@
     el.scrollBy({ top: by });
   }
 
-  // Ctrl+b n / p: the next / previous tab (Overview, README, the plugin tabs, Output), round
-  // and round. The keyboard stays where it is.
+  // Ctrl+b n / p: the next / previous page (then the run shown last), round and round. The
+  // keyboard stays where it is.
   function cycleTabs(delta: number) {
-    if (!details) return;
-    const tabs = details.tabs.length;
-    const count = 2 + tabs + (outputTab ? 1 : 0);
-    const at = shownView ? -1 : current ? 2 + tabs : shownTab !== null ? shownTab + 2 : shownPage === "overview" ? 0 : 1;
+    const list = shownPages.map((p) => p.page);
+    if (!list.length) return;
+    const count = list.length + (outputTab ? 1 : 0);
+    const at = shownView ? -1 : current ? list.length : list.findIndex(pageOn);
     const next = (Math.max(at, delta > 0 ? -1 : 0) + delta + count) % count;
-    if (next < 2) showTab(next === 0 ? "overview" : "readme", false);
-    else if (next < 2 + tabs) showTab(next - 2, false);
+    if (next < list.length) showPageItem(list[next], false);
     else if (outputTab) showRun(outputTab.id);
   }
 
@@ -367,9 +354,9 @@
 
   function onKey(e: KeyboardEvent) {
     // The review page covers everything: all keys are its own (Esc and q close it)
+    // (a key it doesn't use, typed into its comment box, goes to the box)
     if (review) {
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
-      reviewRef?.handleKey(e);
+      if (reviewRef?.handleKey(e)) e.preventDefault();
       return;
     }
     // A plugin's page covers everything too (Esc or q close it, unless it uses them)
@@ -409,13 +396,10 @@
       pane = "plugins";
       return;
     }
-    // 1 Overview, 2 README, 3… the plugin tabs, then Output
+    // 1 Overview, 2 README, 3… the project's pages A–Z
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
-      const n = Number(e.key);
-      if (n === 1) showTab("overview");
-      else if (n === 2) showTab("readme");
-      else if (details.tabs[n - 3]) showTab(n - 3);
-      else if (n === 3 + details.tabs.length && outputTab) showRun(outputTab.id);
+      const p = shownPages[Number(e.key) - 1];
+      if (p) showPageItem(p.page);
       pane = "center";
       e.preventDefault();
       return;
@@ -439,9 +423,8 @@
     if ((e.key === "Enter" || e.key === " ") && button?.matches(":focus-visible")) return;
     if (e.key === "Escape") {
       // Esc closes what's open; with nothing open, the projects get the keyboard back
-      if (!(addMenu || tabMenu || dialog || hints || typing)) pane = "projects";
+      if (!(addMenu || dialog || hints || typing)) pane = "projects";
       addMenu = false;
-      tabMenu = false;
       form = null;
       setupForm = null;
       settingsOpen = false;
@@ -459,12 +442,14 @@
       hints = false;
       const i = HINT_KEYS.indexOf(e.key);
       const a = details?.actions[i];
+      const page = pages[i - (details?.actions.length ?? 0)];
       if (i >= 0 && a) run(a);
+      else if (i >= 0 && page) showPageItem(page.page);
       return;
     }
     if (paneKey(e)) return void e.preventDefault();
     switch (actionFor(MAIN, e)) {
-      case "toolkit": hints = (details?.actions.length ?? 0) > 0; break;
+      case "toolkit": hints = !shownView && kitTotal > 0; break;
       case "add": if (selected) openForm(); break;
       case "stop": if (current && current.endedAt === null) stop(current); break;
       case "run": cycleRuns(e.key === "[" ? -1 : 1); break;
@@ -479,7 +464,11 @@
   function paneKey(e: KeyboardEvent): boolean {
     const action = actionFor(paneKeys, e);
     if (action === null) return false;
-    if (action === "leave") return void (pane = "projects"), true;
+    if (action === "leave") {
+      if (pane === "center" && !shownView && !overviewShown && details) showTab("overview");
+      else pane = "projects";
+      return true;
+    }
     if (pane === "projects") {
       switch (action) {
         case "down": move(1); break;
@@ -506,8 +495,10 @@
       else if (action === "stop-this" && r?.endedAt === null) stop(r);
     } else if (pane === "toolkit") {
       const a = kitOrder[kitCursor];
+      const page = pages[kitCursor - kitOrder.length];
       if (["down", "up", "left", "right", "first", "last"].includes(action)) kitCursor = kitMove(action);
       else if (action === "press" && a) run(a);
+      else if (action === "press" && page) showPageItem(page.page);
       else if (action === "edit" && a?.source === "custom") openForm(a);
     }
     return true;
@@ -561,6 +552,8 @@
     return list.filter((sec) => sec.items.length > 0 || sec.root !== null);
   });
   const folded = (id: string) => collapsed.includes(id) && !filter;
+  // Projects in the order the tree shows them (each is in one section only)
+  const navOrder = $derived(sections.filter((sec) => sec.id !== "hidden").flatMap((sec) => sec.items));
 
   const icons: Record<string, [string, string]> = {
     django: ["", "green"], python: ["", "yellow"], android: ["", "aqua"],
@@ -647,7 +640,7 @@
     const timer = setInterval(() => !document.hidden && look(), 5000);
     return () => clearInterval(timer);
   });
-  let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean } | null>(null);
+  let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean; keymap(): import("$lib/keys/keys").Keymap } | null>(null);
   let avatar = $state(""); // the character (settings); "none": no character
   let avatarRef = $state<{ pickCharacter(): void } | null>(null);
   let lastInput = $state(Date.now());
@@ -675,6 +668,26 @@
       now,
     ),
   );
+  // Where a click on the character goes, by what it shows (null: nowhere)
+  const avatarGo = $derived.by((): { label: string; act: () => void } | null => {
+    const m = avatarMood.mood;
+    const ended = runs.filter((r) => r.endedAt !== null).sort((a, b) => b.endedAt! - a.endedAt!)[0];
+    const live = runs.find((r) => r.endedAt === null);
+    const agents = details?.tabs.findIndex((t) => t.plugin === "agents") ?? -1;
+    if ((m === "done" || m === "failed") && ended) return { label: "its output", act: () => goToRun(ended) };
+    if (m === "running" && live) return { label: "its output", act: () => goToRun(live) };
+    if (m === "review" && views.some((v) => v.plugin === "prs")) return { label: "Pull requests", act: () => openView("prs") };
+    if ((m === "waiting" || m === "thinking") && agents >= 0) return { label: "Agents", act: () => showTab(agents) };
+    if (m === "update" && update) return { label: "what's new", act: () => (updateDialog = true) };
+    return null;
+  });
+  /** A run's output, in its project */
+  async function goToRun(r: Run) {
+    const p = projects.find((x) => x.path === r.projectPath);
+    if (p && p.path !== selected?.path) await select(p);
+    showRun(r.id);
+    pane = "center";
+  }
   let updateDialog = $state(false);
   let updateState = $state<"idle" | "installing" | "installed">("idle");
   let updateError = $state("");
@@ -736,7 +749,7 @@
   );
   /** Who has the keyboard, for the status bar at the bottom */
   const barKeys = $derived(
-    review ? REVIEW
+    review ? (reviewRef?.keymap() ?? REVIEW)
     : pluginPage && pageRef ? pageRef.keymap()
     : form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer ? DIALOG
     : prefix ? PREFIX
@@ -753,6 +766,37 @@
   });
   // The Toolkit's buttons in the order they show (j / k go through them)
   const kitOrder = $derived(groups.flatMap(([, actions]) => actions));
+
+  // Pages: what the center can show for the project, listed in the Toolkit (and on 1–9):
+  // Overview, README, then its plugin tabs A–Z; then the ones it could add (+, A–Z, they open
+  // their setup). There's no tab row: the center's header names the page it shows.
+  type Page = { kind: "overview" | "readme" } | { kind: "tab"; index: number } | { kind: "add"; id: string };
+  interface PageItem { page: Page; title: string; icon: string | null; glyph: string; badge: string | null }
+  const pages = $derived.by((): PageItem[] => {
+    if (!details || !selected) return [];
+    const path = selected.path;
+    const tabs = details.tabs.map((t, index) => ({ t, index })).sort((a, b) => a.t.title.localeCompare(b.t.title));
+    const added = new Set(details.tabs.map((t) => `${t.plugin}:${t.tab}`));
+    return [
+      { page: { kind: "overview" }, title: "Overview", icon: null, glyph: "◉", badge: null },
+      { page: { kind: "readme" }, title: "README", icon: null, glyph: "≡", badge: null },
+      ...tabs.map(({ t, index }): PageItem => ({ page: { kind: "tab", index }, title: t.title, icon: t.icon ?? null, glyph: "▤", badge: badges[frameKeyOf(path, index, t)] ?? null })),
+      ...details.addable.filter((a) => !added.has(a.id)).sort((a, b) => a.name.localeCompare(b.name))
+        .map((a): PageItem => ({ page: { kind: "add", id: a.id }, title: a.name, icon: a.icon ?? null, glyph: "+", badge: null })),
+    ];
+  });
+  // The Toolkit's buttons and pages, for its cursor
+  const kitTotal = $derived(kitOrder.length + pages.length);
+  // The pages 1–9 pick (not the ones still to add)
+  const shownPages = $derived(pages.filter((p) => p.page.kind !== "add"));
+  function showPageItem(p: Page, keys = true) {
+    if (p.kind === "add") return void addTab(p.id);
+    showTab(p.kind === "tab" ? p.index : p.kind, keys);
+  }
+  const pageOn = (p: Page) =>
+    !shownView && shownRun === null && (p.kind === "tab" ? tabShown && shownTab === p.index : p.kind !== "add" && !tabShown && shownPage === p.kind);
+  // What the center shows, for its header (a run's output: current)
+  const pageNow = $derived(current ? null : (pages.find((x) => pageOn(x.page)) ?? null));
 
   async function select(p: Project) {
     selected = p;
@@ -919,18 +963,15 @@
 
 <svelte:window onclick={closeMenuOutside} onmousedown={mouseDown} onkeydown={onKey} />
 <div class="drag" data-tauri-drag-region></div>
-<main class:mac class:wide>
+<main class:mac class:wide class:viewing={!!shownView}>
   <!-- ------------------------------------------------------------ projects -->
   <aside class="panel left">
     <header class="app" data-tauri-drag-region>
-      <button class="title" title="Pick a character, or none" onclick={() => avatarRef?.pickCharacter()}>thumbdeck</button>
-      <Avatar bind:this={avatarRef} mood={avatarMood.mood} caption={avatarMood.caption} character={avatar}
-        onPick={async (id) => applyList(await invoke<ProjectList>("edit_projects", { change: "avatar", path: id }))} />
+      <button class="title" title="Pick a character (it sits on the Toolkit), or none" onclick={() => avatarRef?.pickCharacter()}>thumbdeck</button>
+      <span class="spacer"></span>
       {#if update}
         <button class="update-dot" title="thumbdeck {update.version} is available" onclick={() => (updateDialog = true)}>● {update.version}</button>
       {/if}
-      <button class="settings-btn" title="Settings (,){Object.keys(pluginUpdates).length ? ` · ${Object.keys(pluginUpdates).length} plugin update${Object.keys(pluginUpdates).length === 1 ? '' : 's'}` : ''}"
-              onclick={openSettings}>⚙{#if Object.keys(pluginUpdates).length}<span class="menu-new">↑{Object.keys(pluginUpdates).length}</span>{/if}</button>
       <button class="header-btn" title="Check for a newer thumbdeck" disabled={checking} onclick={checkForUpdates}>{checking ? "…" : "↻"}</button>
     </header>
     <section class="card helm" class:focus={pane === "projects"} data-pane="projects">
@@ -970,7 +1011,7 @@
               {#each sec.items as p (p.path)}
                 {@const [glyph, color] = icons[p.kind] ?? icons.folder}
                 <li class="project" class:muted={p.hidden}>
-                  <button class="pick" class:active={selected?.path === p.path && !p.hidden}
+                  <button class="pick" class:active={selected?.path === p.path && !p.hidden && !shownView}
                           disabled={p.hidden} onclick={() => select(p)}>
                     {#if p.icon}<img class="kind" src={p.icon} alt="" />{:else}<span class="kind" style="color: var(--{color})">{glyph}</span>{/if}
                     <span class="name">{p.name}</span>
@@ -991,23 +1032,26 @@
         </div>
       {/each}
     </section>
-    {#if views.length}
-      <!-- The plugins with a view of their own (Ctrl+p) -->
-      <section class="card pane" class:focus={pane === "plugins"} data-pane="plugins">
-        <h2><span class="dot aqua"></span>Plugins <span class="count">Ctrl+p</span></h2>
+    <!-- The plugins with a view of their own (Ctrl+p), and the plugins' settings (,) -->
+    <section class="card pane" class:focus={pane === "plugins"} data-pane="plugins">
+        <h2>
+          <span class="dot aqua"></span>Plugins
+          <button class="icon settings-btn" title="Settings: plugins (,){Object.keys(pluginUpdates).length ? ` · ${Object.keys(pluginUpdates).length} plugin update${Object.keys(pluginUpdates).length === 1 ? '' : 's'}` : ''}"
+                  onclick={openSettings}>⚙{#if Object.keys(pluginUpdates).length}<span class="menu-new">↑{Object.keys(pluginUpdates).length}</span>{/if}</button>
+        </h2>
+        {#if !views.length}<p class="hint">Plugins with a view of their own show here.</p>{/if}
         <ul>
           {#each views as v, i (v.plugin)}
             <li class="project">
               <button class="pick" class:active={shownView === v.plugin} class:cursor={pane === "plugins" && i === paneCursor}
                       onclick={() => openView(v.plugin)}>
-                <span class="kind">◇</span><span class="name">{v.name}</span>
+                {#if v.icon}<img class="kind picon" src={v.icon} alt="" />{:else}<span class="kind">◇</span>{/if}<span class="name">{v.name}</span>
                 {#if v.status && statuses[v.plugin]}<span class="vstatus">{statuses[v.plugin]}</span>{/if}
               </button>
             </li>
           {/each}
         </ul>
-      </section>
-    {/if}
+    </section>
   </aside>
 
   <!-- ------------------------------------------------------------ center -->
@@ -1035,38 +1079,11 @@
         <span class="path" title={selected.path}>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
         <span> / </span><strong class="name">{selected.name}</strong>
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
-        <!-- Tabs: Overview, README, the project's plugin tabs, the runs you started (1, 2, …) -->
-        <div class="tabbar">
-          <div class="tabs">
-          <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "overview"} title="Overview (1)" onclick={() => showTab("overview")}>
-            <span class="bicon">◉</span><span class="bword">Overview</span>
-          </button>
-          <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "readme"} title="README (2)" onclick={() => showTab("readme")}>
-            <span class="bicon">≡</span><span class="bword">README</span>
-          </button>
-          {#each details?.tabs ?? [] as t, i}
-            <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                    title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span><span class="bword">{t.title}</span>{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
-          {/each}
-          {#if outputTab}
-            {@const r = outputTab}
-            {@const n = 3 + (details?.tabs.length ?? 0)}
-            <button class="btab" class:on={current !== null} title="{r.label}: {r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
-              <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span><span class="bword">Output</span><span class="bsub">{r.label}</span>
-            </button>
-          {/if}
-          </div>
-          <span class="menu-anchor" bind:this={tabMenuEl}>
-            <button class="btab add" title="Add a tab to this project" onclick={openTabMenu}>+</button>
-            {#if tabMenu}
-              <div class="menu down">
-                {#each available as x}
-                  <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
-                {/each}
-              </div>
-            {/if}
-          </span>
-        </div>
+        <!-- What the center shows (the pages are in the Toolkit) -->
+        <span class="pagenow">›
+          {#if current}<span class="st {status(current)}">{current.endedAt === null ? "●" : current.code === 0 ? "✓" : "✗"}</span> Output · {current.label}
+          {:else if pageNow}{#if pageNow.icon}<img class="picon" src={pageNow.icon} alt="" />{:else}<span class="bicon">{pageNow.glyph}</span>{/if} {pageNow.title}{/if}
+        </span>
         <span class="spacer"></span>
         <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> <span class="bword">Open in tmux</span></button>
         <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
@@ -1148,6 +1165,8 @@
       {/each}
     </section>
 
+    <!-- The Toolkit, with the character perched on its bottom edge -->
+    <div class="kit-wrap">
     <section class="card toolkit" class:focus={pane === "toolkit"} data-pane="toolkit">
       <h2>
         <span class="dot orange"></span>Toolkit {#if selected}<span class="for">{selected.name}</span>{/if}
@@ -1186,6 +1205,24 @@
           {/each}
         </div>
       {/each}
+      {#if pages.length}
+        <h3>Pages</h3>
+        <div class="grid">
+          {#each pages as p, j (p.page.kind === "tab" ? `t${p.page.index}` : p.page.kind === "add" ? `a${p.page.id}` : p.page.kind)}
+            {@const hint = HINT_KEYS[(details?.actions.length ?? 0) + j]}
+            {@const n = shownPages.indexOf(p) + 1}
+            <button class="action page" class:add={p.page.kind === "add"} class:on={pageOn(p.page)} class:cursor={pane === "toolkit" && kitCursor === kitOrder.length + j}
+                    title={p.page.kind === "add" ? `Add ${p.title} to this project (opens its setup)` : `Show ${p.title}${n && n <= 9 ? ` (${n})` : ""}`}
+                    onclick={() => showPageItem(p.page)}>
+              {#if hints && hint}<span class="hint-key">{hint}</span>
+              {:else if p.icon}<img class="picon" class:dim={p.page.kind === "add"} src={p.icon} alt="" />
+              {:else}<span class="play">{p.glyph}</span>{/if}
+              <span class="alabel">{p.page.kind === "add" && p.icon ? `+ ${p.title}` : p.title}</span>
+              {#if p.badge}<span class="tbadge">{p.badge}</span>{:else if n && n <= 9}<span class="pnum">{n}</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
       {#if details?.hidden.length}
         <button class="fold hidden-actions" onclick={() => (showHiddenActions = !showHiddenActions)}>
           <span class="caret">{showHiddenActions ? "▾" : "▸"}</span>hidden ({details.hidden.length})
@@ -1202,6 +1239,10 @@
         {/if}
       {/if}
     </section>
+      <Avatar bind:this={avatarRef} mood={avatarMood.mood} caption={avatarMood.caption} character={avatar}
+        go={avatarGo?.label ?? null} onGo={() => avatarGo?.act()}
+        onPick={async (id) => applyList(await invoke<ProjectList>("edit_projects", { change: "avatar", path: id }))} />
+    </div>
     {#each panels as p (`${p.plugin}:${p.id}:${p.scope === "project" ? selected?.path : ""}:${reloads[p.plugin] ?? 0}`)}
       {@const key = `panel:${p.plugin}:${p.id}`}
       <section class="card ppanel">
@@ -1218,7 +1259,7 @@
 <StatusBar mode={barKeys.name} project={selected?.name ?? null} branch={branchState} message={toast} />
 
 {#if review}
-  <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} />
+  <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} {say} />
 {/if}
 
 {#if pluginPage}
@@ -1339,6 +1380,9 @@
   .drag { position: fixed; inset: 0 0 auto 0; height: 8px; z-index: 10; }
   main.mac .app { padding-top: 26px; }
   main { display: grid; grid-template-columns: 250px 1fr 340px; gap: 8px; height: calc(100vh - 22px); padding: 8px; } /* 22px: the status bar */
+  /* A plugin's view (not a project's): no Running and Toolkit */
+  main.viewing { grid-template-columns: 250px 1fr; }
+  main.viewing > .right { display: none; }
   main.wide { grid-template-columns: 1fr; }
   main.wide > .left, main.wide > .right { display: none; }
   .panel { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -1358,10 +1402,10 @@
   .app { font: 700 22px var(--mono); padding: 4px 6px; display: flex; align-items: center; gap: 8px; }
   .update-dot { padding: 1px 8px; border-radius: 10px; background: var(--bg1); color: var(--green); font: 600 11px var(--mono); }
   .update-dot:hover { background: var(--bg2); }
-  .settings-btn { margin-left: auto; }
-  .settings-btn, .header-btn { padding: 2px 7px; border-radius: 8px; background: none; color: var(--grey); font: 16px var(--sans); }
-  .settings-btn:hover, .header-btn:hover { background: var(--bg1); color: var(--fg); }
-  .header-btn { margin-left: -6px; }
+  .header-btn { padding: 2px 7px; border-radius: 8px; background: none; color: var(--grey); font: 16px var(--sans); }
+  .header-btn:hover { background: var(--bg1); color: var(--fg); }
+  /* Settings, in the Plugins title (with the plugin updates waiting) */
+  h2 .icon.settings-btn { margin-left: auto; width: auto; padding: 0 5px; font-size: 14px; }
   .settings-btn .menu-new { margin-left: 3px; font: 600 11px var(--mono); }
   .notes { max-height: 40vh; padding: 0 4px; font-size: 13px; }
   .filter { flex: 1; min-width: 0; margin: -4px 0; background: var(--bg-dim); border: 1px solid var(--bg2); border-radius: 6px; padding: 3px 8px; color: var(--fg); font: 12.5px var(--mono); outline: none; }
@@ -1412,36 +1456,26 @@
   .tab.on { background: var(--bg2); color: var(--fg); }
   .view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   .view > .readme { overflow: auto; }
-  /* The tabs sit in the header row, after the project's name. They're few (runs share one Output
-     tab), so they keep their size and the path gives way when the row is short. */
-  /* A narrow center: the run's name, the branch and the button words go first, then the tab names
-     (each tab keeps its icon; its title says the rest) */
-  @container (max-width: 640px) { .bsub, .crumbs .branch, .tab.open .bword { display: none; } }
-  @container (max-width: 470px) { .btab .bword { display: none; } }
-  .crumbs > .tabbar { flex: none; display: flex; align-items: center; gap: 2px; margin-left: 10px;
-                      padding-left: 10px; border-left: 1px solid var(--bg2); }
-  .tabs { display: flex; align-items: center; gap: 2px; }
-  .btab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 3px 10px; border-radius: 6px;
-          color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
-  .btab:hover { background: var(--bg1); color: var(--fg); }
-  .btab.on { background: var(--bg2); color: var(--fg); }
-  .btab.keys { box-shadow: inset 0 -2px var(--focus); }
-  /* Output's run name, after the word: shortened first when the tab is long */
-  .bsub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--grey); font-size: 11.5px; }
-  .bsub::before { content: "· "; }
+  @container (max-width: 640px) { .crumbs .branch, .tab.open .bword { display: none; } }
+  /* What the center shows, after the project's name */
+  .crumbs > .pagenow { display: flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--fg); }
   .bicon { flex: none; color: var(--grey); }
+  .picon { width: 14px; height: 14px; flex: none; }
+  .picon.dim { opacity: 0.55; }
   .st.running { color: var(--running); } .st.done { color: var(--green); } .st.failed { color: var(--red); }
-  .btab.add { flex: none; padding: 3px 9px; }
-  .menu.down { top: 28px; left: 0; right: auto; }
-  .menu-sub { display: block; color: var(--grey); font-size: 11px; }
   .menu-new { color: var(--green); font-weight: 600; }
   .side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .side.gone { display: none; }
   .pane { flex: none; max-height: 35%; overflow: auto; }
   /* The pane with the keyboard: a 2px border (the shadow adds the second px, so nothing moves)
      and its title in the same colour, so it's plain which one it is at a glance */
-  .card.focus, .center.focus { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus), 0 0 14px color-mix(in srgb, var(--focus) 25%, transparent); }
-  .card.focus > h2 { color: var(--focus); }
+  .card.focus, .center.focus { border-color: var(--pane-focus, var(--focus)); box-shadow: 0 0 0 1px var(--pane-focus, var(--focus)), 0 0 14px color-mix(in srgb, var(--pane-focus, var(--focus)) 25%, transparent); }
+  .card.focus > h2 { color: var(--pane-focus, var(--focus)); }
+  /* Each pane's focus in its dot's colour (the center keeps --focus) */
+  .card[data-pane="projects"] { --pane-focus: var(--purple); }
+  .card[data-pane="plugins"] { --pane-focus: var(--aqua); }
+  .card[data-pane="running"] { --pane-focus: var(--blue); }
+  .card[data-pane="toolkit"] { --pane-focus: var(--orange); }
   .center.focus .crumbs { background: color-mix(in srgb, var(--focus) 12%, transparent); }
   .center.focus .crumbs strong { color: var(--focus); }
   .run.cursor, .action.cursor { background: var(--cursor-bg); box-shadow: inset 2px 0 var(--cursor); }
@@ -1482,11 +1516,19 @@
   .stop:hover { background: var(--bg2); }
 
   .toolkit { flex: 1; overflow: auto; }
+  /* The Toolkit scrolls, so the character sits on a wrapper around it (it hangs over the edge) */
+  .kit-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .action-wrap { position: relative; }
   .action { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border-radius: 8px; background: var(--bg1); border: 1px solid var(--bg2); font: 12.5px var(--mono); }
   .action.custom { border-color: color-mix(in srgb, var(--yellow) 30%, var(--bg2)); }
   .alabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Pages: they show something (the Run buttons above do something) */
+  .action.page { border-color: color-mix(in srgb, var(--blue) 25%, var(--bg2)); }
+  .action.page.on { background: var(--bg2); border-color: color-mix(in srgb, var(--blue) 60%, var(--bg2)); }
+  .action.page.add { border-style: dashed; background: none; color: var(--grey); }
+  .action.page .tbadge, .action.page .pnum { margin-left: auto; }
+  .pnum { font: 10.5px var(--mono); color: var(--grey-dim); }
   .action-tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; opacity: 0; background: var(--bg1); border-radius: 6px; }
   .action-wrap:hover .action-tools { opacity: 1; }
   .hidden-actions { margin-top: 12px; }

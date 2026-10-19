@@ -17,6 +17,8 @@ export interface Character {
   mouth: [number, number];
   /** What each letter is painted with */
   colors: Record<string, string>;
+  /** The row it sits on: the rows below hang over the edge of the panel it's perched on */
+  seat: number;
   /** Raise (up) or lower an arm to wave */
   wave: (rows: string[], up: boolean) => void;
 }
@@ -55,6 +57,7 @@ export const CHARACTERS: Record<string, Character> = {
     ],
     eyes: [4, 4, 10],
     mouth: [7, 7],
+    seat: 9,
     colors: { ...FACE, b: "var(--orange)", f: "var(--orange)" },
     wave(rows, up) {
       rows[9] = set(rows[9], 13, "...");
@@ -98,6 +101,7 @@ export const CHARACTERS: Record<string, Character> = {
     eyes: [2, 5, 9],
     mouth: [7, 7],
     // Eyes on stalks: light around the pupils
+    seat: 10,
     colors: { ...FACE, b: "var(--orange)", f: "var(--fg)", w: "var(--bg0)" },
     wave(rows, up) {
       // The right claw snaps open and shut
@@ -141,6 +145,7 @@ export const CHARACTERS: Record<string, Character> = {
     ],
     eyes: [4, 5, 9],
     mouth: [7, 7],
+    seat: 11,
     colors: { ...FACE, b: "var(--grey)", f: "var(--fg)", w: "var(--bg2)" },
     wave(rows, up) {
       sideArm(rows, up, 3, 8);
@@ -154,6 +159,7 @@ export const CHARACTERS: Record<string, Character> = {
     ],
     eyes: [4, 4, 10],
     mouth: [7, 7],
+    seat: 11,
     colors: { ...FACE, b: "var(--fg)", f: "var(--fg)", w: "var(--bg2)", c: "var(--grey)" },
     wave(rows, up) {
       sideArm(rows, up);
@@ -195,6 +201,7 @@ export const CHARACTERS: Record<string, Character> = {
     ],
     eyes: [4, 4, 10],
     mouth: [7, 7],
+    seat: 10,
     colors: { ...FACE, b: "var(--blue)", f: "var(--blue)", g: "var(--aqua)" },
     wave(rows, up) {
       // The right gills flap high

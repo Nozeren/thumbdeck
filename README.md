@@ -9,15 +9,20 @@ write code.
 
 - **Projects** on the left: the git repositories in `~/dev`, `~/projects` and your home folder,
   with their branch and a dot when they have uncommitted changes.
-- **The center**: the project's Overview, its README, its tabs (Git, Logs, Agents, Pull
-  requests, … from plugins) and an Output tab with what you ran, the tabs at the top, next to the project's name.
+- **The center**: the project's Overview, its README, its pages from plugins (Git, Logs, Agents,
+  …) and the output of what you ran. Its header says which: `webshop ⎇ main › Git`.
   The **Overview** shows where the project stands, in cards: how each Toolkit action ran last,
   and cards from plugins (Git's: the uncommitted files and the last commits; Notes': the open
   checklist items). A project opens
-  on the tab you showed last in it.
+  on the page you showed last in it.
 - **Running and Toolkit** on the right: what's running now (one line when nothing is; ▸ shows
-  the finished runs), and buttons for the project's commands.
-- **Plugins** below the projects: plugins with a view of their own (`Ctrl+p`).
+  the finished runs), and the project's buttons: its commands, then its **Pages** (Overview,
+  README, its plugin pages A–Z, and the ones you could add).
+- **Plugins** below the projects, A–Z: plugins with a view of their own (`Ctrl+p`), like Pull
+  requests or Calendar. They're about everything, not one project: opening one hides Running
+  and the Toolkit until you go back to a project.
+- The pane with the keyboard has a border in its own colour: Projects purple, Plugins aqua,
+  Running blue, Toolkit orange, the center green.
 - **The status line** at the bottom: who has the keyboard, the project's branch, and short
   messages.
 
@@ -32,9 +37,9 @@ others (×); hidden projects stay at the bottom, to show again (↺).
 
 The Toolkit's buttons come from plugins that recognise the project: npm / pnpm / yarn scripts,
 Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs: it shows
-in Running and its output streams into the center's **Output** tab (● running, ✓ done, ✗ failed).
-Runs don't get a tab each: pick one in Running (or `[` / `]`) and Output shows it. When it ends
-while you're in another window, you get a notification.
+in Running and its output streams into the center (● running, ✓ done, ✗ failed). Pick a run in
+Running (or `[` / `]`) to show its output again. When it ends while you're in another window,
+you get a notification.
 
 - **Your own actions**: **+** in the Toolkit (or `a`): a name and a command, run in the project
   folder. Tick *Ask before running* for deploys and resets, and *Run in the project's tmux
@@ -57,7 +62,7 @@ thumbdeck closes; pressing one again while it runs doesn't start it twice.
 ## Plugins
 
 thumbdeck's tabs, Toolkit buttons, panels and views come from plugins, installed in **Settings**
-(`,`, or the **⚙** button beside thumbdeck's name) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
+(`,`, or the **⚙** in the Plugins title) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
 from any git URL, or from a folder you're working on. The first start offers the official ones.
 thumbdeck looks for newer releases of them when it starts, and marks them (↑) in Settings,
 where they're listed by name and you update them, turn them off, set the order of their panels,
@@ -69,11 +74,14 @@ the [spec](https://github.com/Nozeren/thumbdeck-plugins/blob/main/SPEC.md). A pl
 just a `plugin.toml` with Toolkit buttons, or add HTML pages (tabs, panels, full-window pages,
 a view) that use `window.thumbdeck`, and a backend in any language.
 
-## Tabs
+## Pages
 
-**+** after the tabs at the top of the center adds a plugin's tab to the project; ⚙ (or `S` in
-the tab) changes its setup or removes it. `1`, `2`, … switch tabs, and `z` gives the center the
-whole window. The official plugins' tabs:
+The Toolkit's **Pages** are what the center can show for the project: Overview, README, then the
+plugin pages the project has, A–Z, each with its plugin's icon. Dashed **+** pages are plugins
+that would work here but aren't added: a click opens their setup and adds the page. `1`, `2`, …
+pick a page (the small numbers), Space and a letter does too, Esc in the center goes back to the
+Overview, and `z` gives the center the whole window. `S` in a page changes its setup or removes
+it. The official plugins' pages:
 
 **Logs**: the project's log files, JSON lines (pino, bunyan, structlog, …) or plain text
 (Python, Django, Rust, Go, nginx, …). Show or hide levels, search, jump from error to error,
@@ -85,12 +93,6 @@ description, model and tools. Pick one, say what it should do, and Enter starts 
 the project's tmux. The Sessions list shows past Claude Code sessions with their cost, and each
 session's conversation, including what its subagents did step by step.
 
-**Pull requests**: the open PRs of the project's GitHub repo that concern you, in the order to
-deal with them: asked to review again, asked to review, reviewed, yours. The highlighted one's
-checks, conflicts, labels, comments and reviewers show below; 🔔 marks unread notifications.
-`v` reviews its changes, `o` opens it in the browser. It uses your `gh` login. Set the repo to
-`demo` to try it with sample PRs.
-
 **Git**: the repo at a glance. Uncommitted changes with their diffs, the branch against its
 upstream, recent commits, branches and stashes. It only looks; it never changes the repo.
 
@@ -99,9 +101,15 @@ example's placeholder. Values stay hidden unless you ask; `a` adds the missing k
 
 **Notes**: a scratchpad and checklist for each project, kept by thumbdeck (not in the repo).
 
-Plugins with a **view** of their own are listed below the projects: `Ctrl+p` (or `Ctrl+j`), then Enter, shows
-one in the center. **Panels** from plugins sit under the Toolkit. The official views:
+Plugins with a **view** of their own are listed below the projects, A–Z: `Ctrl+p` (or `Ctrl+j`), then
+Enter, shows one in the center. **Panels** from plugins sit under the Toolkit. The official views:
 
+- **Pull requests**: the open PRs that concern you in every repo you're in, in the order to deal
+  with them: asked to review again, asked to review, reviewed, yours, each with its repo. The
+  highlighted one's checks, conflicts, labels, comments and reviewers show below; 🔔 marks unread
+  notifications. `v` reviews it ([the review page](#the-review-page)), `o` opens it in the
+  browser. It uses your `gh` login; its Repos setting limits it to some owners or repos, and
+  `demo` tries it with sample PRs.
 - **Calendar**: your calendars' coming events (iCal links) or the whole month (`m`), what's next
   in the pane, reminders.
 - **Azure Boards**: your Azure DevOps work items with their details; `y` copies a branch name
@@ -114,21 +122,34 @@ one in the center. **Panels** from plugins sit under the Toolkit. The official v
 
 ## The review page
 
-`v` on a PR, or Enter on the Git tab's changes, a commit or a stash, opens its changes over the
-whole window: the changed files on the left, the diff on the right. Side by side or in one
-column (`s`), with syntax colours and the words that changed within a line marked.
+`v` on a pull request, or Enter on the Git tab's changes, a commit or a stash, opens its changes
+over the whole window: the files on the left (a tree, with a viewed bar and a filter, `/`), the
+diff in the middle with a line cursor, and for a PR its description, checks, reviewers and labels
+on the right (`i`). Every button shows its key. Nothing is checked out.
 
-`n` / `N` jump to the next / previous change, `x` ticks a file as viewed and moves on to the
-next (remembered until that file changes again), and `-` moves to the file list, where `j` /
-`k` and `l` pick another file. Nothing is checked out for a PR.
+- **Reading**: `j` / `k` move, `n` / `N` jump between changes, `]` / `[` between files, `s` side
+  by side or one column, with syntax colours and the words that changed marked. Enter on
+  `⋯ 12 unchanged lines` shows them, `f` the whole file. `x` ticks a file viewed and moves on to
+  the next (remembered until that file changes again). In the file list (`-`), each file shows as
+  you move to it. The thin bar on the right shows where the changes and comments are.
+- **Commenting** (a PR): `c` comments on the line, `V` selects lines (`j` / `k` or Shift+click
+  extend) to comment on together, `Ctrl+g` writes a suggested change, `Ctrl+Enter` adds it to your
+  review. The threads show under their lines: `t` / `T` jump between them, Enter replies, `z`
+  resolves (or shows a resolved one).
+- **Finishing** (a PR): `A` approve, `R` request changes, `P` post your review; it goes to GitHub
+  with your line comments. Comments you haven't posted are kept if you close the page.
+
+The Git tab's reviews are read-only (there's no PR to comment on).
 
 ## The avatar
 
-A small pixel character next to the title shows what's going on: it cheers when a run
-finishes, sighs when one fails, waves when Claude is waiting for you, thinks while Claude
-works (with the Agents plugin), holds up a sign when PRs wait for your review (Pull
-requests), and sleeps when you're away. Hover it to see why. Click it (or the title) to pick
-another: octopus, crab, keycap, ghost, axolotl, or none.
+A small pixel character sits on the bottom edge of the Toolkit and shows what's going on: it
+cheers when a run finishes, sighs when one fails, waves when Claude is waiting for you, thinks
+while Claude works (with the Agents plugin), holds up a sign when PRs wait for your review (Pull
+requests), and sleeps when you're away. When its mood changes, a bubble says why for a few
+seconds (hover it to see it again), and a soft glow takes the mood's colour. Click it to go to the
+cause: the run's output, Pull requests, the Agents page. Click the title to pick another
+character: octopus, crab, keycap, ghost, axolotl, or none.
 
 ## Keys
 
@@ -140,9 +161,9 @@ bottom line.
 | key | everywhere |
 | --- | --- |
 | `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | the pane to the left / below / above / right (from a plugin's tab too) |
-| Space, then a letter | run a Toolkit button (the letters show on the buttons) |
-| `1`, `2`, … | the tabs at the top: Overview, README, the project's tabs, Output |
-| `Ctrl+b`, then `n` / `p` | the next / previous tab, as in tmux (the keyboard stays where it is) |
+| Space, then a letter | run a Toolkit button or show a page (the letters show on them) |
+| `1`, `2`, … | a page: Overview, README, the project's pages A–Z (their numbers show in the Toolkit) |
+| `Ctrl+b`, then `n` / `p` | the next / previous page, as in tmux (the keyboard stays where it is) |
 | `]` / `[` | next / previous run |
 | `a` | add your own action |
 | `s` | stop the command shown |
@@ -158,14 +179,14 @@ In each pane, `j` / `k` move (`g` / `G`: first / last) and `q` goes back to Proj
 | Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter, in the Projects title (Enter opens the first match) · `p` / `x` pin / hide |
 | Plugins | `l` or Enter shows a plugin's view |
 | Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab; Notes: the Notes tab) · `x` hides a card in this project (bring it back from "hidden cards" below them) · the card's own keys (`?` lists them) |
-| Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page |
+| Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page · Esc back to the Overview |
 | Running | `l` or Enter shows its output · `s` stops it |
-| Toolkit | Enter runs the button · `e` edits your own action |
+| Toolkit | Enter runs the button or shows the page · `e` edits your own action |
 
 A tab you open (or click in) takes the keyboard, and every tab follows the same rules (plugins
 that don't aren't loaded):
 
-| key | in every tab |
+| key | in every page |
 | --- | --- |
 | `j` `k` `g` `G` | move |
 | Enter or `l` | open, inside thumbdeck (a log, a conversation, a review) |
@@ -201,7 +222,7 @@ signature is checked first.
 
 thumbdeck looks for a new release when it starts, and every few hours. When there is one, its
 version shows next to the title: click it to see what's new and update. The **↻** button
-beside ⚙ asks right away. Releases are signed, and a download that isn't signed with
+next to the title asks right away. Releases are signed, and a download that isn't signed with
 thumbdeck's key is refused. Builds from source update the same way once a newer release
 exists; dev builds never do.
 

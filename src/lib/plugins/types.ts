@@ -113,6 +113,8 @@ export interface Host {
 export interface View {
   plugin: string;
   name: string;
+  /** Its plugin's icon, as a data URL */
+  icon?: string | null;
   status: boolean;
   frame: FrameInfo;
 }

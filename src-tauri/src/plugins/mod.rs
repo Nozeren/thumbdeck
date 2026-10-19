@@ -170,11 +170,24 @@ pub fn tab_frame(plugins: &[Plugin], plugin: &str, tab: &str, saved: &Value) -> 
     Ok((frame_info(plugins, plugin, "tab", tab)?, setup))
 }
 
+/// A plugin's icon (its manifest's `icon`, an .svg in its folder) as a data URL
+pub fn icon_url(p: &Plugin) -> Option<String> {
+    let file = p.manifest.as_ref()?.icon.as_ref()?;
+    crate::projects::svg(&p.folder.join(file).to_string_lossy())
+}
+
+/// The icon of the plugin with this id, if it has one
+pub fn icon_of(plugins: &[Plugin], id: &str) -> Option<String> {
+    plugins.iter().find(|p| p.installed.id == id).and_then(icon_url)
+}
+
 /// A plugin's view, for the Plugins pane
 #[derive(Serialize)]
 pub struct View {
     pub plugin: String,
     pub name: String,
+    /// Its plugin's icon, as a data URL
+    pub icon: Option<String>,
     /// It shows a status next to its name
     pub status: bool,
     pub frame: FrameInfo,
@@ -188,7 +201,7 @@ pub fn views(plugins: &[Plugin]) -> Vec<View> {
         .filter_map(|p| {
             let m = p.manifest.as_ref()?;
             let v = m.view.as_ref()?;
-            Some(View { plugin: m.id.clone(), name: v.name.clone(), status: v.status, frame: frame_info(plugins, &m.id, "view", "").ok()? })
+            Some(View { plugin: m.id.clone(), name: v.name.clone(), icon: icon_url(p), status: v.status, frame: frame_info(plugins, &m.id, "view", "").ok()? })
         })
         .collect()
 }
@@ -304,6 +317,8 @@ pub struct Addable {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// Its plugin's icon, as a data URL
+    pub icon: Option<String>,
 }
 
 /// The plugin tabs a project can have (from working plugins that apply to it)
@@ -311,13 +326,15 @@ pub fn addable_tabs(plugins: &[Plugin], project: &Path) -> Vec<Addable> {
     plugins
         .iter()
         .filter(|p| p.works())
-        .filter_map(|p| p.manifest.as_ref())
-        .filter(|m| applies(m, project))
-        .flat_map(|m| {
-            m.tabs.iter().map(|t| Addable {
+        .filter_map(|p| Some((p, p.manifest.as_ref()?)))
+        .filter(|(_, m)| applies(m, project))
+        .flat_map(|(p, m)| {
+            let icon = icon_url(p);
+            m.tabs.iter().map(move |t| Addable {
                 id: format!("{}:{}", m.id, t.id),
                 name: t.name.clone(),
                 description: if t.description.is_empty() { m.description.clone() } else { t.description.clone() },
+                icon: icon.clone(),
             })
         })
         .collect()

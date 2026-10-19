@@ -23,6 +23,8 @@ struct Details {
     /// Plugins whose buttons couldn't be worked out, and why
     problems: Vec<String>,
     readme: Option<String>,
+    /// The plugin tabs the project could have (the Toolkit's + pages)
+    addable: Vec<plugins::Addable>,
     /// The plugin tabs turned on for the project
     tabs: Vec<TabInfo>,
     /// The tab shown last ("overview", "readme" or "<plugin>:<tab>")
@@ -44,17 +46,20 @@ struct TabInfo {
     /// Why it can't show (its plugin is off, broken or gone)
     #[serde(skip_serializing_if = "Option::is_none")]
     missing: Option<String>,
+    /// Its plugin's icon, as a data URL
+    icon: Option<String>,
 }
 
 fn tab_info(t: &plugins::PluginTab, loaded: &[plugins::Plugin]) -> TabInfo {
+    let icon = plugins::icon_of(loaded, &t.plugin);
     match plugins::tab_frame(loaded, &t.plugin, &t.tab, &t.setup) {
         Ok((frame, setup)) => {
             let title = setup["title"].as_str().unwrap_or(&frame.name).to_string();
-            TabInfo { title, tab: plugins::PluginTab { setup, ..t.clone() }, frame: Some(frame), missing: None }
+            TabInfo { title, tab: plugins::PluginTab { setup, ..t.clone() }, frame: Some(frame), missing: None, icon }
         }
         Err(why) => {
             let title = t.setup.get("title").and_then(|v| v.as_str()).unwrap_or(&t.tab).to_string();
-            TabInfo { title, tab: t.clone(), frame: None, missing: Some(why) }
+            TabInfo { title, tab: t.clone(), frame: None, missing: Some(why), icon }
         }
     }
 }
@@ -92,6 +97,7 @@ fn details(app: &AppHandle, path: &str) -> Details {
         problems,
         readme: projects::readme(Path::new(path)),
         tabs: s.tabs.get(path).into_iter().flatten().map(|t| tab_info(t, &loaded)).collect(),
+        addable: plugins::addable_tabs(&loaded, Path::new(path)),
         last_tab: s.last_tab.get(path).cloned(),
         last_runs: s.last_runs.get(path).cloned().unwrap_or_default(),
         hidden_cards: s.hidden_cards.get(path).cloned().unwrap_or_default(),
