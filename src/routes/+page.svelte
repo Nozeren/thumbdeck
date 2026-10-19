@@ -345,22 +345,21 @@
     el.scrollBy({ top: by });
   }
 
-  // Ctrl+b n / p: the next / previous tab (Overview, README, the plugin tabs, the runs), round
+  // Ctrl+b n / p: the next / previous tab (Overview, README, the plugin tabs, Output), round
   // and round. The keyboard stays where it is.
   function cycleTabs(delta: number) {
     if (!details) return;
     const tabs = details.tabs.length;
-    const count = 2 + tabs + runTabs.length;
-    const runAt = runTabs.findIndex((r) => r.id === shownRun);
-    const at = shownView ? -1 : runAt >= 0 ? 2 + tabs + runAt : shownTab !== null ? shownTab + 2 : shownPage === "overview" ? 0 : 1;
+    const count = 2 + tabs + (outputTab ? 1 : 0);
+    const at = shownView ? -1 : current ? 2 + tabs : shownTab !== null ? shownTab + 2 : shownPage === "overview" ? 0 : 1;
     const next = (Math.max(at, delta > 0 ? -1 : 0) + delta + count) % count;
     if (next < 2) showTab(next === 0 ? "overview" : "readme", false);
     else if (next < 2 + tabs) showTab(next - 2, false);
-    else showRun(runTabs[next - 2 - tabs].id);
+    else if (outputTab) showRun(outputTab.id);
   }
 
   function cycleRuns(delta: number) {
-    const list = runTabs; // oldest first
+    const list = projectRuns.toReversed(); // oldest first
     if (!list.length) return;
     const i = list.findIndex((r) => r.id === shownRun);
     showRun(list[(i < 0 ? list.length - 1 : i + delta + list.length) % list.length].id);
@@ -410,14 +409,13 @@
       pane = "plugins";
       return;
     }
-    // 1 Overview, 2 README, 3… the plugin tabs, then the runs
+    // 1 Overview, 2 README, 3… the plugin tabs, then Output
     if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
       const n = Number(e.key);
-      const runIndex = n - 3 - details.tabs.length;
       if (n === 1) showTab("overview");
       else if (n === 2) showTab("readme");
       else if (details.tabs[n - 3]) showTab(n - 3);
-      else if (runTabs[runIndex]) showRun(runTabs[runIndex].id);
+      else if (n === 3 + details.tabs.length && outputTab) showRun(outputTab.id);
       pane = "center";
       e.preventDefault();
       return;
@@ -714,24 +712,14 @@
   const liveRuns = $derived(projectRuns.filter((r) => r.endedAt === null).length);
   let allRuns = $state(false);
   const runList = $derived(allRuns || pane === "running" ? projectRuns : projectRuns.filter((r) => r.endedAt === null));
-  // Runs whose tab you closed (they keep running; the Running panel opens them again)
-  let closedRuns = $state<number[]>([]);
-  // The project's runs as tabs, oldest first
-  const runTabs = $derived(projectRuns.toReversed().filter((r) => !closedRuns.includes(r.id)));
+  // Runs aren't tabs: one Output tab shows the run picked last in Running (at first the newest),
+  // so the tab row stays the same length however many runs there are
+  let outputRun = $state<number | null>(null);
+  const outputTab = $derived(projectRuns.find((r) => r.id === outputRun) ?? projectRuns[0] ?? null);
 
   function showRun(id: number) {
-    closedRuns = closedRuns.filter((x) => x !== id);
+    outputRun = id;
     shownRun = id;
-  }
-
-  function closeRun(r: Run) {
-    const i = runTabs.findIndex((x) => x.id === r.id);
-    closedRuns = [...closedRuns, r.id];
-    if (shownRun === r.id) {
-      const next = runTabs[i] ?? runTabs[i - 1]; // runTabs no longer has r
-      if (next) shownRun = next.id;
-      else showTab(shownTab !== null && details?.tabs[shownTab] ? shownTab : shownPage, false);
-    }
   }
   // An extension tab is in the center (not the README or a run's output)
   const tabShown = $derived(shownRun === null && shownTab !== null && !!details?.tabs[shownTab]);
@@ -818,11 +806,11 @@
     form = null;
   }
 
-  /** Start a command in a project: a tab with its output (shown when `show`), in Running */
+  /** Start a command in a project: in Running, its output in the Output tab (shown when `show`) */
   async function startRun(p: { path: string }, command: string, label: string, source: string, show: boolean) {
     const id = await invoke<number>("run_action", { path: p.path, command, label });
     runs.push({ id, projectPath: p.path, label, source, command, startedAt: Date.now(), endedAt: null, code: null, lines: [] });
-    if (show) shownRun = id;
+    if (show) showRun(id);
     return id;
   }
 
@@ -1051,25 +1039,22 @@
         <div class="tabbar">
           <div class="tabs">
           <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "overview"} title="Overview (1)" onclick={() => showTab("overview")}>
-            <span class="bicon">◉</span>Overview
+            <span class="bicon">◉</span><span class="bword">Overview</span>
           </button>
           <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "readme"} title="README (2)" onclick={() => showTab("readme")}>
-            <span class="bicon">≡</span>README
+            <span class="bicon">≡</span><span class="bword">README</span>
           </button>
           {#each details?.tabs ?? [] as t, i}
             <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                    title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
+                    title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span><span class="bword">{t.title}</span>{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
           {/each}
-          {#each runTabs as r, i (r.id)}
-            {@const n = 3 + (details?.tabs.length ?? 0) + i}
-            <span class="btab brun" class:on={shownRun === r.id}>
-              <button class="blabel" title="{r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
-                <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>{r.label}
-              </button>
-              <button class="bclose" title="Close the tab{r.endedAt === null ? ' (the command keeps running)' : ''}"
-                      onclick={() => closeRun(r)}>×</button>
-            </span>
-          {/each}
+          {#if outputTab}
+            {@const r = outputTab}
+            {@const n = 3 + (details?.tabs.length ?? 0)}
+            <button class="btab" class:on={current !== null} title="{r.label}: {r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
+              <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span><span class="bword">Output</span><span class="bsub">{r.label}</span>
+            </button>
+          {/if}
           </div>
           <span class="menu-anchor" bind:this={tabMenuEl}>
             <button class="btab add" title="Add a tab to this project" onclick={openTabMenu}>+</button>
@@ -1083,7 +1068,7 @@
           </span>
         </div>
         <span class="spacer"></span>
-        <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> Open in tmux</button>
+        <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> <span class="bword">Open in tmux</span></button>
         <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
                 onclick={() => (wide = !wide)}>{wide ? "⤡" : "⤢"}</button>
       </nav>
@@ -1417,7 +1402,7 @@
 
   /* center */
   .center { position: relative; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }
-  .crumbs { display: flex; align-items: center; gap: 4px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); }
+  .crumbs { display: flex; align-items: center; gap: 4px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); overflow: hidden; container-type: inline-size; }
   .crumbs strong { color: var(--fg); }
   /* One line: the path gives way first (… at its end), the name, branch and buttons stay whole */
   .crumbs > :not(.spacer) { flex: none; white-space: nowrap; }
@@ -1427,21 +1412,23 @@
   .tab.on { background: var(--bg2); color: var(--fg); }
   .view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   .view > .readme { overflow: auto; }
-  /* The tabs sit in the header row, after the project's name. When the row is short the path gives
-     way first, then the tabs scroll sideways; + stays outside the scroll (its menu opens downward). */
-  .crumbs > .tabbar { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: 10px;
+  /* The tabs sit in the header row, after the project's name. They're few (runs share one Output
+     tab), so they keep their size and the path gives way when the row is short. */
+  /* A narrow center: the run's name, the branch and the button words go first, then the tab names
+     (each tab keeps its icon; its title says the rest) */
+  @container (max-width: 640px) { .bsub, .crumbs .branch, .tab.open .bword { display: none; } }
+  @container (max-width: 470px) { .btab .bword { display: none; } }
+  .crumbs > .tabbar { flex: none; display: flex; align-items: center; gap: 2px; margin-left: 10px;
                       padding-left: 10px; border-left: 1px solid var(--bg2); }
-  .tabs { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+  .tabs { display: flex; align-items: center; gap: 2px; }
   .btab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 3px 10px; border-radius: 6px;
           color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
   .btab:hover { background: var(--bg1); color: var(--fg); }
   .btab.on { background: var(--bg2); color: var(--fg); }
   .btab.keys { box-shadow: inset 0 -2px var(--focus); }
-  .btab.brun { padding: 0 2px 0 0; gap: 0; }
-  .btab.brun .blabel { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 4px 3px 10px;
-                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bclose { flex: none; padding: 0 6px; color: var(--grey); border-radius: 4px; }
-  .bclose:hover { color: var(--fg); background: var(--bg3); }
+  /* Output's run name, after the word: shortened first when the tab is long */
+  .bsub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--grey); font-size: 11.5px; }
+  .bsub::before { content: "· "; }
   .bicon { flex: none; color: var(--grey); }
   .st.running { color: var(--running); } .st.done { color: var(--green); } .st.failed { color: var(--red); }
   .btab.add { flex: none; padding: 3px 9px; }

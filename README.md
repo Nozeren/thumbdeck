@@ -10,7 +10,7 @@ write code.
 - **Projects** on the left: the git repositories in `~/dev`, `~/projects` and your home folder,
   with their branch and a dot when they have uncommitted changes.
 - **The center**: the project's Overview, its README, its tabs (Git, Logs, Agents, Pull
-  requests, … from plugins) and the output of what you ran, with a tab for each at the top, next to the project's name.
+  requests, … from plugins) and an Output tab with what you ran, the tabs at the top, next to the project's name.
   The **Overview** shows where the project stands, in cards: how each Toolkit action ran last,
   and cards from plugins (Git's: the uncommitted files and the last commits; Notes': the open
   checklist items). A project opens
@@ -31,10 +31,10 @@ more), and **+ › Add project…** adds any folder. Pin the ones you use most (
 others (×); hidden projects stay at the bottom, to show again (↺).
 
 The Toolkit's buttons come from plugins that recognise the project: npm / pnpm / yarn scripts,
-Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs as a tab at the
-top of the center (● running, ✓ done, ✗ failed), its output streaming in. When it ends while
-you're in another window, you get a notification. Closing the tab doesn't stop the command;
-the Running panel opens it again.
+Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs: it shows
+in Running and its output streams into the center's **Output** tab (● running, ✓ done, ✗ failed).
+Runs don't get a tab each: pick one in Running (or `[` / `]`) and Output shows it. When it ends
+while you're in another window, you get a notification.
 
 - **Your own actions**: **+** in the Toolkit (or `a`): a name and a command, run in the project
   folder. Tick *Ask before running* for deploys and resets, and *Run in the project's tmux
@@ -141,7 +141,7 @@ bottom line.
 | --- | --- |
 | `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | the pane to the left / below / above / right (from a plugin's tab too) |
 | Space, then a letter | run a Toolkit button (the letters show on the buttons) |
-| `1`, `2`, … | the tabs at the top: Overview, README, the project's tabs, its runs |
+| `1`, `2`, … | the tabs at the top: Overview, README, the project's tabs, Output |
 | `Ctrl+b`, then `n` / `p` | the next / previous tab, as in tmux (the keyboard stays where it is) |
 | `]` / `[` | next / previous run |
 | `a` | add your own action |
