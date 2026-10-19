@@ -489,7 +489,7 @@
         case "first": case "last": move(action); break;
         case "open": pane = "center"; break;
         case "outside": openInTmux(); break;
-        case "filter": filterEl?.focus(); break;
+        case "filter": openFilter(); break;
         case "pin": if (selected) edit("pin", selected.path); break;
         case "remove": if (selected) edit("remove", selected.path); break;
       }
@@ -502,8 +502,8 @@
       else scrollCenter(action as Parameters<typeof scrollCenter>[0]);
     } else if (pane === "running") {
       const step = { down: 1, up: -1, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
-      const r = projectRuns[runCursor];
-      if (step !== undefined) runCursor = moveCursor(runCursor, projectRuns.length, step);
+      const r = runList[runCursor];
+      if (step !== undefined) runCursor = moveCursor(runCursor, runList.length, step);
       else if (action === "open" && r) showRun(r.id);
       else if (action === "stop-this" && r?.endedAt === null) stop(r);
     } else if (pane === "toolkit") {
@@ -513,6 +513,14 @@
       else if (action === "edit" && a?.source === "custom") openForm(a);
     }
     return true;
+  }
+
+  // / (or the / by the title): the filter, in the Projects title
+  let filterOpen = $state(false);
+  async function openFilter() {
+    filterOpen = true;
+    await tick();
+    filterEl?.focus();
   }
 
   // Enter in the filter opens the first match
@@ -701,6 +709,11 @@
 
   const projectRuns = $derived(runs.filter((r) => r.projectPath === selected?.path).toReversed());
   const current = $derived(runs.find((r) => r.id === shownRun) ?? null);
+  // The Running pane lists only what's running, so it's one line when nothing is; ▸ (or giving
+  // it the keyboard) shows the finished runs too
+  const liveRuns = $derived(projectRuns.filter((r) => r.endedAt === null).length);
+  let allRuns = $state(false);
+  const runList = $derived(allRuns || pane === "running" ? projectRuns : projectRuns.filter((r) => r.endedAt === null));
   // Runs whose tab you closed (they keep running; the Running panel opens them again)
   let closedRuns = $state<number[]>([]);
   // The project's runs as tabs, oldest first
@@ -932,11 +945,17 @@
               onclick={openSettings}>⚙{#if Object.keys(pluginUpdates).length}<span class="menu-new">↑{Object.keys(pluginUpdates).length}</span>{/if}</button>
       <button class="header-btn" title="Check for a newer thumbdeck" disabled={checking} onclick={checkForUpdates}>{checking ? "…" : "↻"}</button>
     </header>
-    <input class="filter" placeholder="Filter projects…   /" bind:value={filter} bind:this={filterEl} onkeydown={filterKey}
-           onfocus={() => (filtering = true)} onblur={() => (filtering = false)} />
     <section class="card helm" class:focus={pane === "projects"} data-pane="projects">
       <h2>
-        <span class="dot purple"></span>Projects <span class="count">{visible.length}</span>
+        <span class="dot purple"></span>
+        <!-- The filter takes the title's place while you use it (/), and stays while it has text -->
+        {#if filterOpen || filter}
+          <input class="filter" placeholder="Filter projects…" bind:value={filter} bind:this={filterEl} onkeydown={filterKey}
+                 onfocus={() => (filtering = true)} onblur={() => { filtering = false; filterOpen = false; }} />
+        {:else}
+          Projects <button class="icon find" title="Filter the projects (/)" onclick={openFilter}>/</button>
+        {/if}
+        <span class="count">{visible.length}</span>
         <span class="menu-anchor" bind:this={addMenuEl}>
           <button class="icon" title="Add…" onclick={() => (addMenu = !addMenu)}>+</button>
           {#if addMenu}
@@ -1028,6 +1047,41 @@
         <span class="path" title={selected.path}>{home(selected.path).split("/").slice(0, -1).join(" / ")}</span>
         <span> / </span><strong class="name">{selected.name}</strong>
         {#if selected.branch}<span class="branch">  {selected.branch}</span>{/if}
+        <!-- Tabs: Overview, README, the project's plugin tabs, the runs you started (1, 2, …) -->
+        <div class="tabbar">
+          <div class="tabs">
+          <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "overview"} title="Overview (1)" onclick={() => showTab("overview")}>
+            <span class="bicon">◉</span>Overview
+          </button>
+          <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "readme"} title="README (2)" onclick={() => showTab("readme")}>
+            <span class="bicon">≡</span>README
+          </button>
+          {#each details?.tabs ?? [] as t, i}
+            <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
+                    title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
+          {/each}
+          {#each runTabs as r, i (r.id)}
+            {@const n = 3 + (details?.tabs.length ?? 0) + i}
+            <span class="btab brun" class:on={shownRun === r.id}>
+              <button class="blabel" title="{r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
+                <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>{r.label}
+              </button>
+              <button class="bclose" title="Close the tab{r.endedAt === null ? ' (the command keeps running)' : ''}"
+                      onclick={() => closeRun(r)}>×</button>
+            </span>
+          {/each}
+          </div>
+          <span class="menu-anchor" bind:this={tabMenuEl}>
+            <button class="btab add" title="Add a tab to this project" onclick={openTabMenu}>+</button>
+            {#if tabMenu}
+              <div class="menu down">
+                {#each available as x}
+                  <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
+                {/each}
+              </div>
+            {/if}
+          </span>
+        </div>
         <span class="spacer"></span>
         <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> Open in tmux</button>
         <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
@@ -1079,41 +1133,6 @@
                   }} />
       {/if}
       </div>
-      <!-- Tabs: README, the project's plugin tabs, the runs you started (1, 2, …) -->
-      <nav class="tabbar">
-        <div class="tabs">
-        <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "overview"} title="Overview (1)" onclick={() => showTab("overview")}>
-          <span class="bicon">◉</span>Overview
-        </button>
-        <button class="btab" class:on={shownRun === null && !tabShown && shownPage === "readme"} title="README (2)" onclick={() => showTab("readme")}>
-          <span class="bicon">≡</span>README
-        </button>
-        {#each details?.tabs ?? [] as t, i}
-          <button class="btab" class:on={shownRun === null && shownTab === i} class:keys={keysToTab && tabShown && shownTab === i}
-                  title="{t.title}{i + 3 <= 9 ? ` (${i + 3})` : ''}" onclick={() => showTab(i)}><span class="bicon">▤</span>{t.title}{#if selected && badges[frameKeyOf(selected.path, i, t)]}<span class="tbadge">{badges[frameKeyOf(selected.path, i, t)]}</span>{/if}</button>
-        {/each}
-        {#each runTabs as r, i (r.id)}
-          {@const n = 3 + (details?.tabs.length ?? 0) + i}
-          <span class="btab brun" class:on={shownRun === r.id}>
-            <button class="blabel" title="{r.command}{n <= 9 ? ` (${n})` : ''}" onclick={() => showRun(r.id)}>
-              <span class="bicon st {status(r)}">{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>{r.label}
-            </button>
-            <button class="bclose" title="Close the tab{r.endedAt === null ? ' (the command keeps running)' : ''}"
-                    onclick={() => closeRun(r)}>×</button>
-          </span>
-        {/each}
-        </div>
-        <span class="menu-anchor" bind:this={tabMenuEl}>
-          <button class="btab add" title="Add a tab to this project" onclick={openTabMenu}>+</button>
-          {#if tabMenu}
-            <div class="menu up">
-              {#each available as x}
-                <button title={x.description} onclick={() => addTab(x.id)}>{x.name}<span class="menu-sub">{x.description}</span></button>
-              {/each}
-            </div>
-          {/if}
-        </span>
-      </nav>
     {:else}
       <p class="empty">No projects found in ~/dev, ~/projects or your home folder.</p>
     {/if}
@@ -1122,19 +1141,20 @@
 
   <!-- ------------------------------------------------------------ running + toolkit -->
   <aside class="panel right">
-    <section class="card running" class:focus={pane === "running"} data-pane="running">
-      <h2><span class="dot blue"></span>Running</h2>
-      {#if projectRuns.length === 0}
-        <p class="hint">Nothing yet: pick something from the toolkit.</p>
-      {/if}
-      {#each projectRuns as r, i (r.id)}
+    <section class="card running" class:focus={pane === "running"} class:idle={runList.length === 0} data-pane="running">
+      <h2>
+        <span class="dot blue"></span>Running
+        {#if liveRuns === 0}<span class="for">{projectRuns.length ? "nothing now" : "nothing yet"}</span>{:else}<span class="for live">{liveRuns} running</span>{/if}
+        {#if projectRuns.length > liveRuns}
+          <button class="icon" title={allRuns ? "Hide the finished runs" : "Show the finished runs"}
+                  onclick={() => (allRuns = !allRuns)}>{allRuns ? "▾" : `▸${projectRuns.length - liveRuns}`}</button>
+        {/if}
+      </h2>
+      {#each runList as r, i (r.id)}
         <div class="run" class:shown={r.id === shownRun} class:cursor={pane === "running" && i === runCursor} role="button" tabindex="0"
              onclick={() => showRun(r.id)} onkeydown={(e) => e.key === "Enter" && showRun(r.id)}>
-          <span class="avatar {r.source}">{r.source.slice(0, 2)}</span>
-          <span class="what">
-            <span class="label">{r.label}</span>
-            <span class="pill {status(r)}">{status(r)}</span>
-          </span>
+          <span class="st {status(r)}" title={status(r)}>{r.endedAt === null ? "●" : r.code === 0 ? "✓" : "✗"}</span>
+          <span class="label">{r.label}</span>
           <span class="time">{elapsed(r)}</span>
           {#if r.endedAt === null}
             <button class="stop" title="Stop" onclick={(e) => { e.stopPropagation(); stop(r); }}>■</button>
@@ -1359,7 +1379,8 @@
   .header-btn { margin-left: -6px; }
   .settings-btn .menu-new { margin-left: 3px; font: 600 11px var(--mono); }
   .notes { max-height: 40vh; padding: 0 4px; font-size: 13px; }
-  .filter { width: 100%; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: 13px var(--mono); outline: none; }
+  .filter { flex: 1; min-width: 0; margin: -4px 0; background: var(--bg-dim); border: 1px solid var(--bg2); border-radius: 6px; padding: 3px 8px; color: var(--fg); font: 12.5px var(--mono); outline: none; }
+  h2 .icon.find { margin-left: 0; width: 18px; height: 18px; opacity: 0.6; }
   .filter:focus { border-color: var(--purple); }
   .helm { flex: 1; overflow: auto; }
   .section { margin-top: 6px; }
@@ -1396,19 +1417,20 @@
 
   /* center */
   .center { position: relative; background: var(--bg0); border: 1px solid var(--bg2); border-radius: 12px; overflow: hidden; }
-  .crumbs { display: flex; align-items: center; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); }
+  .crumbs { display: flex; align-items: center; gap: 4px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--bg2); font: 12px var(--mono); color: var(--grey); }
   .crumbs strong { color: var(--fg); }
   /* One line: the path gives way first (… at its end), the name, branch and buttons stay whole */
   .crumbs > :not(.spacer) { flex: none; white-space: nowrap; }
-  .crumbs > .path { flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs > .path { flex: 0 1000 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; }
   .spacer { flex: 1; }
   .tab { padding: 3px 10px; border-radius: 6px; font: 12px var(--mono); color: var(--grey); }
   .tab.on { background: var(--bg2); color: var(--fg); }
   .view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   .view > .readme { overflow: auto; }
-  .tabbar { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-top: 1px solid var(--bg2);
-            font: 12px var(--mono); }
-  /* The tabs keep their size and scroll sideways when there are many; + stays outside (its menu opens upward) */
+  /* The tabs sit in the header row, after the project's name. When the row is short the path gives
+     way first, then the tabs scroll sideways; + stays outside the scroll (its menu opens downward). */
+  .crumbs > .tabbar { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: 10px;
+                      padding-left: 10px; border-left: 1px solid var(--bg2); }
   .tabs { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
   .btab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 3px 10px; border-radius: 6px;
           color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
@@ -1423,13 +1445,18 @@
   .bicon { flex: none; color: var(--grey); }
   .st.running { color: var(--running); } .st.done { color: var(--green); } .st.failed { color: var(--red); }
   .btab.add { flex: none; padding: 3px 9px; }
-  .menu.up { top: auto; bottom: 30px; left: 0; right: auto; }
+  .menu.down { top: 28px; left: 0; right: auto; }
   .menu-sub { display: block; color: var(--grey); font-size: 11px; }
   .menu-new { color: var(--green); font-weight: 600; }
   .side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .side.gone { display: none; }
   .pane { flex: none; max-height: 35%; overflow: auto; }
-  .card.focus, .center.focus { border-color: var(--focus); }
+  /* The pane with the keyboard: a 2px border (the shadow adds the second px, so nothing moves)
+     and its title in the same colour, so it's plain which one it is at a glance */
+  .card.focus, .center.focus { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus), 0 0 14px color-mix(in srgb, var(--focus) 25%, transparent); }
+  .card.focus > h2 { color: var(--focus); }
+  .center.focus .crumbs { background: color-mix(in srgb, var(--focus) 12%, transparent); }
+  .center.focus .crumbs strong { color: var(--focus); }
   .run.cursor, .action.cursor { background: var(--cursor-bg); box-shadow: inset 2px 0 var(--cursor); }
   .helm.focus .pick.active { box-shadow: inset 2px 0 var(--cursor); }
   .pane ul { list-style: none; margin: 0; padding: 0; }
@@ -1452,19 +1479,17 @@
   .empty { padding: 20px; }
 
   /* right */
-  .running { max-height: 45%; overflow: auto; }
-  .run { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: var(--bg1); border: 1px solid transparent; margin-bottom: 6px; cursor: pointer; }
-  .run.shown { border-color: var(--bg3); }
-  .avatar { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font: 700 11px var(--mono); text-transform: uppercase; color: var(--bg0); background: var(--grey); }
-  .avatar.npm { background: var(--red); } .avatar.django { background: var(--green); } .avatar.pytest { background: var(--yellow); }
-  .avatar.compose { background: var(--blue); } .avatar.gradle { background: var(--aqua); } .avatar.make { background: var(--purple); }
-  .avatar.cargo { background: var(--orange); } .avatar.go { background: var(--blue); }
-  .what { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .label { font: 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pill { align-self: flex-start; font: 10px var(--mono); padding: 1px 7px; border-radius: 99px; }
-  .pill.running { color: var(--running); background: color-mix(in srgb, var(--running) 15%, transparent); }
-  .pill.done { color: var(--grey); background: var(--bg2); }
-  .pill.failed { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
+  .card.running { flex: none; max-height: 45%; overflow: auto; }
+  /* nothing listed: just the title line */
+  .card.running.idle { padding-block: 8px; }
+  .card.running.idle h2 { margin: 0; }
+  .card.running h2 .icon { margin-left: 0; width: auto; padding: 0 5px; }
+  .for.live { color: var(--running); }
+  .run { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 4px; cursor: pointer; }
+  .run:hover { background: var(--bg1); }
+  .run.shown { background: var(--bg1); border-color: var(--bg3); }
+  .run .st { width: 12px; text-align: center; font: 12px var(--mono); }
+  .label { flex: 1; min-width: 0; font: 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .time { font: 11px var(--mono); color: var(--grey); }
   .stop { color: var(--red); padding: 2px 6px; border-radius: 6px; }
   .stop:hover { background: var(--bg2); }
@@ -1479,7 +1504,6 @@
   .action-wrap:hover .action-tools { opacity: 1; }
   .hidden-actions { margin-top: 12px; }
   .hidden-list { list-style: none; margin: 0; padding: 0 0 0 10px; font: 12px var(--mono); }
-  .avatar.custom { background: var(--yellow); }
   .tab.open:hover { background: var(--bg2); }
   .hint-key { min-width: 16px; padding: 0 4px; border-radius: 4px; text-align: center; background: var(--orange); color: var(--bg0); font-weight: 700; }
   .hint-note { font: 400 11px var(--mono); color: var(--orange); }

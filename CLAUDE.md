@@ -1,7 +1,7 @@
 # thumbdeck
 
 Desktop app (Tauri 2 + Svelte 5, Linux and macOS): projects (and the Plugins pane) on the left,
-the selected one's README / tabs / run output in the center (tabs at the bottom), Running +
+the selected one's README / tabs / run output in the center (tabs at the top, in the header row), Running +
 Toolkit + plugin panels on the right. Tabs, Toolkit buttons, panels, views and pages all come
 from plugins.
 The user reads everything in plain English; the README is the user-facing documentation.

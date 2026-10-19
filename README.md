@@ -10,13 +10,13 @@ write code.
 - **Projects** on the left: the git repositories in `~/dev`, `~/projects` and your home folder,
   with their branch and a dot when they have uncommitted changes.
 - **The center**: the project's Overview, its README, its tabs (Git, Logs, Agents, Pull
-  requests, … from plugins) and the output of what you ran, with a tab for each at the bottom.
+  requests, … from plugins) and the output of what you ran, with a tab for each at the top, next to the project's name.
   The **Overview** shows where the project stands, in cards: how each Toolkit action ran last,
   and cards from plugins (Git's: the uncommitted files and the last commits; Notes': the open
   checklist items). A project opens
   on the tab you showed last in it.
-- **Running and Toolkit** on the right: what you started, and buttons for the project's
-  commands.
+- **Running and Toolkit** on the right: what's running now (one line when nothing is; ▸ shows
+  the finished runs), and buttons for the project's commands.
 - **Plugins** below the projects: plugins with a view of their own (`Ctrl+p`).
 - **The status line** at the bottom: who has the keyboard, the project's branch, and short
   messages.
@@ -32,7 +32,7 @@ others (×); hidden projects stay at the bottom, to show again (↺).
 
 The Toolkit's buttons come from plugins that recognise the project: npm / pnpm / yarn scripts,
 Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs as a tab at the
-bottom of the center (● running, ✓ done, ✗ failed), its output streaming in. When it ends while
+top of the center (● running, ✓ done, ✗ failed), its output streaming in. When it ends while
 you're in another window, you get a notification. Closing the tab doesn't stop the command;
 the Running panel opens it again.
 
@@ -71,7 +71,7 @@ a view) that use `window.thumbdeck`, and a backend in any language.
 
 ## Tabs
 
-**+** on the strip at the bottom of the center adds a plugin's tab to the project; ⚙ (or `S` in
+**+** after the tabs at the top of the center adds a plugin's tab to the project; ⚙ (or `S` in
 the tab) changes its setup or removes it. `1`, `2`, … switch tabs, and `z` gives the center the
 whole window. The official plugins' tabs:
 
@@ -134,13 +134,14 @@ another: octopus, crab, keycap, ghost, axolotl, or none.
 
 `?` lists them wherever you are. The main page is panes, like nvim splits or tmux panes:
 Projects and Plugins on the left, the center, Running and Toolkit on the right. The one with
-the keyboard has a green border, and its name is at the start of the bottom line.
+the keyboard has a bright green border and a green title, and its name is at the start of the
+bottom line.
 
 | key | everywhere |
 | --- | --- |
 | `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | the pane to the left / below / above / right (from a plugin's tab too) |
 | Space, then a letter | run a Toolkit button (the letters show on the buttons) |
-| `1`, `2`, … | the tabs at the bottom: Overview, README, the project's tabs, its runs |
+| `1`, `2`, … | the tabs at the top: Overview, README, the project's tabs, its runs |
 | `Ctrl+b`, then `n` / `p` | the next / previous tab, as in tmux (the keyboard stays where it is) |
 | `]` / `[` | next / previous run |
 | `a` | add your own action |
@@ -154,7 +155,7 @@ In each pane, `j` / `k` move (`g` / `G`: first / last) and `q` goes back to Proj
 
 | pane | keys |
 | --- | --- |
-| Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter (Enter opens the first match) · `p` / `x` pin / hide |
+| Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter, in the Projects title (Enter opens the first match) · `p` / `x` pin / hide |
 | Plugins | `l` or Enter shows a plugin's view |
 | Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab; Notes: the Notes tab) · `x` hides a card in this project (bring it back from "hidden cards" below them) · the card's own keys (`?` lists them) |
 | Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page |
