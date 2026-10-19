@@ -276,16 +276,8 @@
   let filterEl = $state<HTMLInputElement | null>(null);
   const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
 
-  // Projects in the order the tree shows them (a pinned project counts once, where it's pinned)
-  const navOrder = $derived.by(() => {
-    const seen = new Set<string>();
-    const out: Project[] = [];
-    for (const sec of sections) {
-      if (sec.id === "hidden") continue;
-      for (const p of sec.items) if (!seen.has(p.path)) (seen.add(p.path), out.push(p));
-    }
-    return out;
-  });
+  // Projects in the order the tree shows them (each is in one section only)
+  const navOrder = $derived(sections.filter((sec) => sec.id !== "hidden").flatMap((sec) => sec.items));
 
   function move(delta: number | "first" | "last") {
     if (!navOrder.length) return;
@@ -547,14 +539,16 @@
   const visible = $derived(
     projects.filter((p) => !p.hidden && p.name.toLowerCase().includes(filter.toLowerCase())),
   );
-  // The project tree: Pinned, one section per scan folder, Added, Hidden
+  // The project tree: Pinned, one section per scan folder, Added, Hidden.
+  // A pinned project shows only under Pinned, so it's never on two rows at once.
   const sections = $derived.by(() => {
     const match = (p: Project) => p.name.toLowerCase().includes(filter.toLowerCase());
     const shown = projects.filter((p) => !p.hidden && match(p));
+    const rest = shown.filter((p) => !p.pinned);
     const list = [
       { id: "pinned", label: "★ Pinned", root: null as string | null, items: shown.filter((p) => p.pinned) },
-      ...roots.map((r) => ({ id: r, label: home(r), root: r as string | null, items: shown.filter((p) => p.root === r) })),
-      { id: "added", label: "Added", root: null, items: shown.filter((p) => p.root === null) },
+      ...roots.map((r) => ({ id: r, label: home(r), root: r as string | null, items: rest.filter((p) => p.root === r) })),
+      { id: "added", label: "Added", root: null, items: rest.filter((p) => p.root === null) },
       { id: "hidden", label: "Hidden", root: null, items: projects.filter((p) => p.hidden && match(p)) },
     ];
     // Scan folders always show (so they can be removed); the others only when they have projects
@@ -571,7 +565,7 @@
   const home = (path: string) => path.replace(/^\/(home|Users)\/[^/]+/, "~");
 
   // Section of the tree a project sits in
-  const sectionOf = (p: Project) => p.root ?? "added";
+  const sectionOf = (p: Project) => (p.hidden ? "hidden" : p.pinned ? "pinned" : (p.root ?? "added"));
 
   function applyList(list: ProjectList, starting = false) {
     projects = list.projects;
