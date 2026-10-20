@@ -115,6 +115,9 @@ Enter, shows one in the center. **Panels** from plugins sit under the Toolkit. T
 - **Azure Boards**: your Azure DevOps work items with their details; `y` copies a branch name
   for one. It needs a personal access token (Work Items: Read), kept in a Settings field that
   hides it; set the organization to `demo` to try it.
+- **Chrome**: your browser's profiles grouped by tenant, one key to open each and its
+  shortcuts; make, edit and delete profiles; link rules open thumbdeck's links in the profile
+  signed in there.
 - **Ports**: what's listening on which port and the project it runs in; `x` stops it (it asks).
 - **Clipboard**: what you copied, newest first and searchable; `y` copies one again, `p` pins it.
   Password managers' copies aren't kept.

@@ -7,7 +7,7 @@
   // resolve), and the review sent as Comment, Approve or Request changes. Every button shows its
   // key. Keys come through handleKey() (the page sends them all here while it's open).
   import { tick } from "svelte";
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { invoke } from "@tauri-apps/api/core";
   import type { ReviewComment, ReviewEvent, ReviewRequest, ReviewThread } from "./types.ts";
   import { parseDiff, splitRows, wordDiff, type DiffFile, type Line, type Segment } from "./diff.ts";
   import { languageFor, lineHtml } from "./highlight.ts";
@@ -15,6 +15,9 @@
   import { actionFor, keyName, type Keymap } from "../keys/keys.ts";
   import { REVIEW, REVIEW_COMMENT, REVIEW_FILES, REVIEW_POST } from "../keys/maps.ts";
   import KeyHelp from "../keys/KeyHelp.svelte";
+
+  // Links go through thumbdeck, so a plugin that claimed them (Chrome) picks the profile
+  const openUrl = (url: string) => invoke("open_url", { url }).catch(() => {});
 
   let { request, onClose, say = () => {} }: { request: ReviewRequest; onClose: () => void; say?: (text: string, error?: boolean) => void } = $props();
 

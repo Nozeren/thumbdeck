@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 pub trait Host: Send + Sync + 'static {
     /// A line for the plugin's log (its stderr, or stdout that isn't a message)
     fn log(&self, plugin: &str, text: &str);
-    /// A request (or event) from the backend: `event`, `ui.*`, `storage.*`, `actions.refresh`
+    /// A request (or event) from the backend: `event`, `ui.*`, `storage.*`, `actions.refresh`, `links.claim`
     fn from_backend(&self, plugin: &str, method: &str, params: Value) -> Result<Value, String>;
 }
 
@@ -101,7 +101,6 @@ impl Backends {
         }
     }
 
-    #[cfg(test)]
     pub fn is_running(&self, plugin: &str) -> bool {
         self.0.running.lock().unwrap().contains_key(plugin)
     }

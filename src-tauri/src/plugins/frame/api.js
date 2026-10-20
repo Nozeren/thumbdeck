@@ -139,6 +139,8 @@
         }
         return;
       }
+      // Cmd+C (Ctrl+C on Linux) with text selected copies it, as everywhere else
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "c" && String(getSelection()).length) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       const { key, code, ctrlKey, metaKey, altKey, shiftKey } = e;

@@ -315,6 +315,10 @@ async fn plugin_edit(app: AppHandle, id: String, change: String) -> Result<Vec<p
     if change != "up" && change != "down" {
         app.state::<plugins::backend::Backends>().stop(&id);
         forget_backend_actions(&id);
+        let mut handler = link_handler().lock().unwrap();
+        if handler.as_deref() == Some(id.as_str()) {
+            *handler = None;
+        }
     }
     let s = match change.as_str() {
         "enable" | "disable" => settings::update(&app, |s| settings::add_plugin(s, plugins::install::Installed { enabled: change == "enable", ..p }))?,
@@ -365,12 +369,8 @@ async fn plugin_call(app: AppHandle, plugin: String, project: Option<String>, me
             Ok(serde_json::Value::Null)
         }
         "ui.openUrl" => {
-            use tauri_plugin_opener::OpenerExt;
-            let url = params["url"].as_str().unwrap_or_default();
-            if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
-                return Err(format!("{url} isn't a web address"));
-            }
-            app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())?;
+            let url = params["url"].as_str().unwrap_or_default().to_string();
+            tauri::async_runtime::spawn_blocking(move || open_link(&app, &url)).await.map_err(|e| e.to_string())??;
             Ok(serde_json::Value::Null)
         }
         _ => {
@@ -383,6 +383,35 @@ async fn plugin_call(app: AppHandle, plugin: String, project: Option<String>, me
             .map_err(|e| e.to_string())?
         }
     }
+}
+
+/// A link from a plugin or the review page: through the backend that claimed links (the Chrome
+/// plugin picks the profile), or the default browser when none did, it says no, or it fails
+fn open_link(app: &AppHandle, url: &str) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
+        return Err(format!("{url} isn't a web address"));
+    }
+    let handler = link_handler().lock().unwrap().clone();
+    if let Some(id) = handler.filter(|id| app.state::<plugins::backend::Backends>().is_running(id)) {
+        match call_backend(app, &id, "openUrl", serde_json::json!({ "url": url }), std::time::Duration::from_secs(5)) {
+            Ok(serde_json::Value::Bool(true)) => return Ok(()),
+            Ok(_) => {}
+            Err(e) => app.state::<plugins::log::Logs>().add(&id, "error", &format!("opening {url}: {e}")),
+        }
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// The plugin whose backend opens links (`links.claim`), if any
+fn link_handler() -> &'static std::sync::Mutex<Option<String>> {
+    static HANDLER: std::sync::OnceLock<std::sync::Mutex<Option<String>>> = std::sync::OnceLock::new();
+    HANDLER.get_or_init(Default::default)
+}
+
+#[tauri::command]
+async fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_link(&app, &url)).await.map_err(|e| e.to_string())?
 }
 
 // ------------------------------------------------------------ plugin backends
@@ -417,6 +446,14 @@ impl plugins::backend::Host for AppHost {
                 let title = params["title"].as_str().unwrap_or_default();
                 let body = params["body"].as_str().unwrap_or_default();
                 app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())?;
+            }
+            "links.claim" => {
+                let mut handler = link_handler().lock().unwrap();
+                if params["on"].as_bool().unwrap_or(true) {
+                    *handler = Some(plugin.to_string());
+                } else if handler.as_deref() == Some(plugin) {
+                    *handler = None;
+                }
             }
             "storage.get" | "storage.set" | "storage.remove" => {
                 let project = params.get("project").and_then(|p| p.as_str()).map(std::path::PathBuf::from);
@@ -756,7 +793,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![list_projects, edit_projects, project_details, remember_tab, remember_run, plugin_cards, hide_card, edit_actions, run_action, stop_run, open_in_tmux, run_in_tmux, show_tmux_window,
             tabs_available, new_tab, plugin_call, plugin_log, plugin_log_lines, plugin_log_clear, plugin_backend_call, plugin_refresh_actions, edit_tab,
             plugin_frame, plugin_views, plugin_panels, plugin_catalog, plugin_catalog_offered, plugin_statuses, open_devtools,
-            check_update, install_update, restart, readme_image,
+            check_update, install_update, restart, readme_image, open_url,
             branch_status,
             plugins_list, plugin_add, plugin_edit, plugin_save_settings, plugins_check_updates])
         .setup(|app| {
