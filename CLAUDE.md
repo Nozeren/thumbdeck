@@ -15,7 +15,8 @@ The user reads everything in plain English; the README is the user-facing docume
   plugins repo; `docs/plugin-work.md` has how it was built and why). `manifest.rs` (plugin.toml
   and its checks), `install.rs` (git URL at the latest tag, linking a folder, updates),
   `detect.rs` + `toolkit.rs` (Toolkit buttons), `frame.rs` (the `plugin://` scheme; puts
-  `frame/api.js` = `window.thumbdeck` and `frame/kit.css` in each page), `api.rs` (files,
+  `frame/api.js` = `window.thumbdeck` and `frame/kit.css` in each page; the kit also has the list-beside-details
+  pieces the official plugins use: td-split, td-row, td-chip, td-pane, td-diff… documented in SPEC.md), `api.rs` (files,
   exec, storage for frames), `backend.rs` (backends: JSON lines), `catalog.rs`, `keys.rs` (the
   key rules again: a test keeps them equal to `keys.ts` and `@thumbdeck/check`), `official.rs`
   (tests that the official plugins give the old buttons)

@@ -41,3 +41,87 @@ body.td-keys .td-list > [aria-selected="true"] { box-shadow: inset 2px 0 var(--c
 .td-empty { color: var(--grey); padding: 16px; }
 .td-error { color: var(--red); }
 .td-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--bg2); white-space: nowrap; }
+
+/* ------------------------------------------------------------ since 0.8.0
+   A list beside the highlighted item's details, the way thumbdeck's own views look: groups with
+   counts, rows of one or two lines, filters with counts, keys printed on what they do. */
+
+/* A key's badge, beside what it does: <button>Review <kbd>v</kbd></button> */
+kbd { display: inline-block; min-width: 9px; padding: 0 4px; margin-left: 4px; border: 1px solid var(--bg3); border-bottom-width: 2px;
+      border-radius: 4px; font: 10.5px/1.45 var(--mono); color: var(--grey); text-align: center; vertical-align: 1px; background: var(--bg1); }
+button kbd { color: var(--fg); border-color: var(--grey-dim); background: var(--bg0); }
+button.primary kbd { color: var(--bg0); border-color: color-mix(in srgb, var(--bg0) 35%, transparent); background: color-mix(in srgb, var(--bg0) 20%, transparent); }
+
+/* The list and the details share the page's full height; on a narrow page the details go below.
+   <main class="td-split"><ul class="td-rows">…</ul><section class="td-pane">…</section></main> */
+.td-split { flex: 1; min-height: 0; height: 100%; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+.td-split > * { min-width: 0; min-height: 0; overflow: auto; }
+@media (max-width: 600px) { .td-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); } }
+
+/* Rows of one line (td-row one) or two: <li class="td-row" aria-selected="true">
+     <span class="td-mark"></span><span class="td-l1">title</span><span class="td-side">…</span><span class="td-l2">details</span></li> */
+.td-rows { list-style: none; margin: 0; padding: 4px 8px 12px; font: 12.5px var(--mono); }
+.td-group { display: flex; align-items: baseline; gap: 8px; padding: 10px 8px 4px; font: 600 11px var(--mono); letter-spacing: 0.05em;
+            text-transform: uppercase; color: var(--c, var(--grey)); }
+.td-group .n { color: var(--grey); font-weight: 400; letter-spacing: 0; }
+.td-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 5px 10px;
+          border-radius: 8px; cursor: default; }
+.td-row:hover { background: var(--bg1); }
+.td-row[aria-selected="true"] { background: var(--bg2); }
+body.td-keys .td-row[aria-selected="true"] { box-shadow: inset 2px 0 var(--cursor); }
+.td-row .td-l1 { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow: hidden; white-space: nowrap; }
+.td-row .td-l2 { grid-column: 2; display: flex; gap: 8px; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--grey); font-size: 11.5px; }
+.td-row .td-side { grid-row: 1 / span 2; grid-column: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11.5px; color: var(--grey); white-space: nowrap; }
+.td-row.one .td-side { grid-row: 1; flex-direction: row; align-items: center; gap: 6px; }
+.td-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Filters with how many each keeps: <button class="td-chip" aria-pressed="true">Yours <b>3</b></button> */
+.td-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--bg3); border-radius: 12px; padding: 0 8px;
+           background: none; color: var(--grey); font: 11.5px var(--mono); white-space: nowrap; }
+button.td-chip { cursor: pointer; }
+.td-chip b { color: var(--c, var(--fg)); font-weight: 600; }
+.td-chip[aria-pressed="true"] { border-color: var(--yellow); color: var(--yellow); }
+.td-chip.off { opacity: 0.4; text-decoration: line-through; }
+.td-chips { display: inline-flex; align-items: center; gap: 6px; }
+
+/* A state in a few words, outlined in its colour: <span class="td-pill green">✓ checks pass</span> */
+.td-pill { display: inline-block; border: 1px solid currentColor; border-radius: 10px; padding: 0 8px; font: 11.5px var(--mono); white-space: nowrap; }
+.td-tag { display: inline-block; border-radius: 10px; padding: 0 8px; font: 11px var(--mono); background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+
+/* The highlighted item: what you act on first. <section class="td-pane"><h3>…</h3>
+   <div class="td-sub">…</div><div class="td-sect"><h5>Checks</h5>…</div></section> */
+.td-pane { border-left: 1px solid var(--bg2); padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 600px) { .td-pane { border-left: 0; border-top: 1px solid var(--bg2); } }
+.td-pane > h3 { margin: 0; font: 600 15px/1.35 var(--mono); }
+.td-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; color: var(--grey); font: 12px var(--mono); }
+.td-sect > h5 { margin: 0 0 6px; font: 600 10.5px var(--mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--grey); }
+.td-item { display: flex; gap: 8px; align-items: center; padding: 2px 0; white-space: nowrap; font: 12px var(--mono); }
+.td-item > .r { margin-left: auto; font-size: 11.5px; }
+.td-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* A person, as a face with their initial and a dot for their state:
+   <span class="td-face" style="background: var(--purple); --dot: var(--green)">A</span> */
+.td-faces { display: inline-flex; }
+.td-face { position: relative; width: 16px; height: 16px; margin-left: -4px; border-radius: 50%; border: 2px solid var(--bg0); display: grid;
+           place-items: center; font: 700 8.5px var(--mono); color: var(--bg-dim); background: var(--grey); }
+.td-face:first-child { margin-left: 0; }
+.td-row[aria-selected="true"] .td-face { border-color: var(--bg2); }
+.td-face::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 7px; height: 7px; border-radius: 50%;
+                  border: 1.5px solid var(--bg0); background: var(--dot, transparent); }
+
+/* A diff, the way the review page draws it: <div class="td-diff"><div class="td-hunk">@@ …</div>
+   <div class="td-dl add"><span>old</span><span>new</span><span>+</span><code>text</code></div></div> */
+.td-diff { font: 12px/1.6 var(--mono); }
+.td-dl { display: grid; grid-template-columns: 40px 40px 14px minmax(0, 1fr); }
+.td-dl > span:nth-child(-n+2) { color: var(--grey-dim); text-align: right; padding-right: 6px; font-size: 11px; user-select: none; }
+.td-dl > span:nth-child(3) { color: var(--grey); user-select: none; }
+.td-dl > code { background: none; padding: 0 12px 0 0; border-radius: 0; color: inherit; font: inherit; white-space: pre-wrap; word-break: break-all; }
+.td-dl.add { background: color-mix(in srgb, var(--green) 12%, transparent); } .td-dl.add > span:nth-child(3) { color: var(--green); }
+.td-dl.del { background: color-mix(in srgb, var(--red) 12%, transparent); } .td-dl.del > span:nth-child(3) { color: var(--red); }
+.td-hunk { padding: 3px 16px; margin-top: 4px; color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); font-size: 11.5px; }
+.td-dfile { padding: 8px 16px 2px; font-weight: 600; border-top: 1px solid var(--bg2); margin-top: 8px; }
+.td-dfile:first-child { border-top: 0; margin-top: 0; }
+
+/* Colours for a word or a sign (✓ ✗ ● +3 −1) */
+.td-red { color: var(--red); } .td-orange { color: var(--orange); } .td-yellow { color: var(--yellow); } .td-green { color: var(--green); }
+.td-aqua { color: var(--aqua); } .td-blue { color: var(--blue); } .td-purple { color: var(--purple); } .td-grey { color: var(--grey); }
