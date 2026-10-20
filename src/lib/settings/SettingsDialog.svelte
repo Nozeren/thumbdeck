@@ -124,6 +124,29 @@
     change("Saving…", () => invoke("plugin_save_settings", { id, settings: $state.snapshot(values) }), () => show(id));
   }
 
+  // Every plugin with a newer release, one after another; the ones that fail stay marked
+  async function updateAll() {
+    const ids = Object.keys(updates).filter((id) => plugins.some((p) => p.id === id));
+    const failed: string[] = [];
+    let left = { ...updates };
+    error = "";
+    for (const [i, id] of ids.entries()) {
+      const name = plugins.find((p) => p.id === id)?.name ?? id;
+      busy = `Updating ${i + 1} of ${ids.length}: ${name}…`;
+      try {
+        plugins = await invoke<PluginInfo[]>("plugin_edit", { id, change: "update" });
+        const { [id]: _, ...rest } = left;
+        left = rest;
+        onUpdates(left);
+      } catch (err) {
+        failed.push(`${name}: ${err}`);
+      }
+    }
+    busy = "";
+    onChanged();
+    if (failed.length) error = `Not updated: ${failed.join("; ")}`;
+  }
+
   async function checkUpdates() {
     busy = "Checking for updates…";
     try {
@@ -177,7 +200,12 @@
         {/each}
         {#if loaded && plugins.length === 0}<p class="hint none">No plugins yet.</p>{/if}
         <button class="item add" class:on={shown === "add"} onclick={() => show("add")}>+ Add a plugin</button>
-        <button class="ghost small check" disabled={!!busy || plugins.length === 0} onclick={checkUpdates}>Check for updates</button>
+        <div class="checks">
+          {#if Object.keys(updates).length}
+            <button class="primary small" disabled={!!busy} onclick={updateAll}>Update all ({Object.keys(updates).length})</button>
+          {/if}
+          <button class="ghost small" disabled={!!busy || plugins.length === 0} onclick={checkUpdates}>Check for updates</button>
+        </div>
       </nav>
 
       <section class="detail">
@@ -303,7 +331,7 @@
   .state.on { color: var(--green); } .state.off { color: var(--grey); } .state.broken { color: var(--red); font-weight: 700; }
   .new { color: var(--green); font-weight: 700; }
   .none { padding: 4px 8px; margin: 0; }
-  .check { margin-top: auto; align-self: flex-start; }
+  .checks { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
   .small { padding: 5px 10px; }
 
   .detail { min-width: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }

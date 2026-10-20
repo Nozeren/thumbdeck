@@ -65,7 +65,7 @@ thumbdeck's tabs, Toolkit buttons, panels and views come from plugins, installed
 (`,`, or the **⚙** in the Plugins title) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
 from any git URL, or from a folder you're working on. The first start offers the official ones.
 thumbdeck looks for newer releases of them when it starts, and marks them (↑) in Settings,
-where they're listed by name and you update them, turn them off, set the order of their panels,
+where they're listed by name and you update them (one by one, or all at once with **Update all**), turn them off, set the order of their panels,
 or read their log. A plugin runs with your
 rights, like an editor plugin: install the ones you trust.
 
