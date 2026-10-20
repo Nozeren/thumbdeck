@@ -35,8 +35,11 @@ The user reads everything in plain English; the README is the user-facing docume
   `@thumbdeck/check`), `catalog.toml`, GUIDE.md, SPEC.md. Its own checks: `npm test`,
   `npm run check`, `npm run build` (the Svelte pages of agents and logs into `dist/`, committed)
 - `src/lib/keys/`: every place's keys in `maps.ts` (handlers switch on its actions; the ? help
-  is drawn from it); `RULES` in `keys.ts` (a key means the same everywhere) is checked by
-  `npm test`. `src/lib/StatusBar.svelte`: the bottom line (who has the keyboard, branch, messages)
+  and the Space menu are drawn from it); `keys.ts` has `RULES` (rule 1: a vim key means what it
+  means in vim; the shared Space letters, rule 2), checked by `npm test`, and the `KeyReader`
+  (sequences like `gg` / `]c` / `Space f`, counts, `f{x}`, `.` and `;`). The page reads keys
+  for its panes, the Overview and plugins' frames (they get finished presses); the review page
+  has its own reader. `MOVED` says where an old key went (until 1.1). Keys are always vim-style. `src/lib/StatusBar.svelte`: the bottom line (who has the keyboard, branch, messages)
 - `src/lib/review/`: the review page (diff parsing in `diff.ts`; rows, comment anchors, the file tree and
   safe comment text in `review.ts`), opened by Git (read-only) and the Pull requests view (comments,
   threads, the verdict: callbacks the plugin passes in `td.ui.openReview`, see `types.ts`)
@@ -68,8 +71,9 @@ from real files first.
 - Drive it (Hyprland) only through the dev window, found by its process (`target/debug/thumbdeck`),
   never the installed app (`~/.local/bin/thumbdeck`): `hyprctl dispatch sendshortcut ", <key>, address:<addr>"`;
   screenshot with `alterzorder top` then `grim -g`, and `alterzorder bottom` after.
-- Never send Enter or `o` on the main page unless a button has keyboard focus: they open the
-  project in the user's real tmux. Space + letter runs Toolkit buttons; number keys switch tabs.
+- Never send Enter or `Space t` on the main page unless a button has keyboard focus: they open
+  the project in the user's real tmux. Space + letter runs Toolkit buttons; Space + a digit shows
+  a page. `:` is Shift+semicolon with sendshortcut.
 - An unstyled page in dev is vite's stuck CSS cache (it serves the raw .svelte source as the
   CSS): `touch src/routes/+page.svelte`, and if that doesn't help, restart `npm run tauri dev`.
 - Keep screenshots and command output few and small; they fill the context fast.

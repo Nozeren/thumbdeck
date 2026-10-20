@@ -38,10 +38,10 @@ others (×); hidden projects stay at the bottom, to show again (↺).
 The Toolkit's buttons come from plugins that recognise the project: npm / pnpm / yarn scripts,
 Makefile targets, Django, Python, Docker Compose, Gradle, Cargo, Go. Press one, or Space then its letter, and it runs: it shows
 in Running and its output streams into the center (● running, ✓ done, ✗ failed). Pick a run in
-Running (or `[` / `]`) to show its output again. When it ends while you're in another window,
+Running (or `[r` / `]r`) to show its output again. When it ends while you're in another window,
 you get a notification.
 
-- **Your own actions**: **+** in the Toolkit (or `a`): a name and a command, run in the project
+- **Your own actions**: **+** in the Toolkit (or `Space a`): a name and a command, run in the project
   folder. Tick *Ask before running* for deploys and resets, and *Run in the project's tmux
   session* for servers, watchers and shells.
 - **Buttons for a kind of project** thumbdeck doesn't know: a plugin can be just a
@@ -62,7 +62,7 @@ thumbdeck closes; pressing one again while it runs doesn't start it twice.
 ## Plugins
 
 thumbdeck's tabs, Toolkit buttons, panels and views come from plugins, installed in **Settings**
-(`,`, or the **⚙** in the Plugins title) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
+(`Space ,`, or the **⚙** in the Plugins title) **› Plugins**: from the [official ones](https://github.com/Nozeren/thumbdeck-plugins),
 from any git URL, or from a folder you're working on. The first start offers the official ones.
 thumbdeck looks for newer releases of them when it starts, and marks them (↑) in Settings,
 where they're listed by name and you update them (one by one, or all at once with **Update all**), turn them off, set the order of their panels,
@@ -78,9 +78,9 @@ a view) that use `window.thumbdeck`, and a backend in any language.
 
 The Toolkit's **Pages** are what the center can show for the project: Overview, README, then the
 plugin pages the project has, A–Z, each with its plugin's icon. Dashed **+** pages are plugins
-that would work here but aren't added: a click opens their setup and adds the page. `1`, `2`, …
+that would work here but aren't added: a click opens their setup and adds the page. `Space 1`, `Space 2`, …
 pick a page (the small numbers), Space and a letter does too, Esc in the center goes back to the
-Overview, and `z` gives the center the whole window. `S` in a page changes its setup or removes
+Overview, and `Ctrl+w o` gives the center the whole window. `Space S` in a page changes its setup or removes
 it. The official plugins' pages:
 
 **Logs**: the project's log files, JSON lines (pino, bunyan, structlog, …) or plain text
@@ -97,7 +97,7 @@ session's conversation, including what its subagents did step by step.
 upstream, recent commits, branches and stashes. It only looks; it never changes the repo.
 
 **Env**: the project's `.env` against its `.env.example`: what's missing, empty or still the
-example's placeholder. Values stay hidden unless you ask; `a` adds the missing keys.
+example's placeholder. Values stay hidden unless you ask (`Space h`); `Space a` adds the missing keys.
 
 **Notes**: a scratchpad and checklist for each project, kept by thumbdeck (not in the repo).
 
@@ -107,7 +107,7 @@ Enter, shows one in the center. **Panels** from plugins sit under the Toolkit. T
 - **Pull requests**: the open PRs that concern you in every repo you're in, in the order to deal
   with them: asked to review again, asked to review, reviewed, yours, each with its repo. The
   highlighted one's checks, conflicts, labels, comments and reviewers show below; 🔔 marks unread
-  notifications. `v` reviews it ([the review page](#the-review-page)), `o` opens it in the
+  notifications. Enter reviews it ([the review page](#the-review-page)), `gx` opens it in the
   browser. It uses your `gh` login; its Repos setting limits it to some owners or repos, and
   `demo` tries it with sample PRs.
 - **Calendar**: your calendars' coming events (iCal links) or the whole month (`m`), what's next
@@ -118,28 +118,28 @@ Enter, shows one in the center. **Panels** from plugins sit under the Toolkit. T
 - **Chrome**: your browser's profiles grouped by tenant, one key to open each and its
   shortcuts; make, edit and delete profiles; link rules open thumbdeck's links in the profile
   signed in there.
-- **Ports**: what's listening on which port and the project it runs in; `x` stops it (it asks).
-- **Clipboard**: what you copied, newest first and searchable; `y` copies one again, `p` pins it.
+- **Ports**: what's listening on which port and the project it runs in; `dd` stops it (it asks).
+- **Clipboard**: what you copied, newest first and searchable; Enter (or `yy`) copies one again, `Space p` pins it.
   Password managers' copies aren't kept.
 - **Dev utils**: paste a JWT, JSON, base64, a timestamp or a URL and see it decoded; UUIDs.
 
 ## The review page
 
-`v` on a pull request, or Enter on the Git tab's changes, a commit or a stash, opens its changes
+Enter (or `gd`) on a pull request, or on the Git tab's changes, a commit or a stash, opens its changes
 over the whole window: the files on the left (a tree, with a viewed bar and a filter, `/`), the
 diff in the middle with a line cursor, and for a PR its description, checks, reviewers and labels
-on the right (`i`). Every button shows its key. Nothing is checked out.
+on the right (`Space i`). Every button shows its key. Nothing is checked out.
 
-- **Reading**: `j` / `k` move, `n` / `N` jump between changes, `]` / `[` between files, `s` side
+- **Reading**: `j` / `k` move, `]c` / `[c` jump between changes, `]f` / `[f` between files, `Ctrl+w v` side
   by side or one column, with syntax colours and the words that changed marked. Enter on
-  `⋯ 12 unchanged lines` shows them, `f` the whole file. `x` ticks a file viewed and moves on to
+  `⋯ 12 unchanged lines` shows them (or `zo`), `zR` the whole file (`zM` back). `x` ticks a file viewed and moves on to
   the next (remembered until that file changes again). In the file list (`-`), each file shows as
   you move to it. The thin bar on the right shows where the changes and comments are.
-- **Commenting** (a PR): `c` comments on the line, `V` selects lines (`j` / `k` or Shift+click
-  extend) to comment on together, `Ctrl+g` writes a suggested change, `Ctrl+Enter` adds it to your
-  review. The threads show under their lines: `t` / `T` jump between them, Enter replies, `z`
+- **Commenting** (a PR): `cc` comments on the line, `v` selects lines (`j` / `k` or Shift+click
+  extend) to comment on together (`c`) or copy (`y`, in any review), `Ctrl+g` writes a suggested change, `Ctrl+Enter` adds it to your
+  review. The threads show under their lines: `]t` / `[t` jump between them, Enter replies, `x`
   resolves (or shows a resolved one).
-- **Finishing** (a PR): `A` approve, `R` request changes, `P` post your review; it goes to GitHub
+- **Finishing** (a PR): `Space A` (or `:approve`) approve, `Space R` (or `:request`) request changes, `:w` post your review; it goes to GitHub
   with your line comments. Comments you haven't posted are kept if you close the page.
 
 The Git tab's reviews are read-only (there's no PR to comment on).
@@ -156,49 +156,64 @@ character: octopus, crab, keycap, ghost, axolotl, or none.
 
 ## Keys
 
-`?` lists them wherever you are. The main page is panes, like nvim splits or tmux panes:
-Projects and Plugins on the left, the center, Running and Toolkit on the right. The one with
-the keyboard has a bright green border and a green title, and its name is at the start of the
-bottom line.
+Two rules, the same in thumbdeck and every plugin:
+
+1. **A vim key means what it means in vim.** `j` / `k`, `gg` / `G`, `Ctrl+d` / `Ctrl+u`, counts
+   (`5j`, `3dd`), `/` with `n` / `N`, `f` and a letter, `v` / `V` to select, `yy` to copy, `p`
+   to paste, `dd` to delete (or stop, or hide), `cc` to rename, `o` for a new item, `i` to
+   edit, `x` to tick, `u` / `Ctrl+r` undo / redo, `.` again, `za` / `zR` / `zM` folds, `]c`
+   `]t` `]f` `]e` `]r` the next change, thread, file, error, run (`[` the previous), `gd` the
+   diff, `gx` open outside, `R` refresh, `q` / Esc leave.
+2. **The rest is behind Space** (the place's actions, their letters shown as you press it) or on
+   the `:` line. The letters mean the same everywhere: `Space s` stop, `Space p` pin, `Space f`
+   filter, `Space o` order, `Space h` hidden, `Space i` the details pane, `Space y` copy as…,
+   `Space e` the editor, `Space t` a terminal, `Space w` follow, `Space S` setup.
+
+`?` lists the keys wherever you are, and the keys typed so far show at the right of the
+bottom line. The main page is panes, like nvim windows: Projects and Plugins on the left, the
+center, Running and Toolkit on the right. The one with the keyboard has a bright green border
+and a green title, and its name is at the start of the bottom line. Text selected with the
+mouse copies with Cmd+C / Ctrl+C.
 
 | key | everywhere |
 | --- | --- |
-| `Ctrl+h` / `Ctrl+j` / `Ctrl+k` / `Ctrl+l` | the pane to the left / below / above / right (from a plugin's tab too) |
-| Space, then a letter | run a Toolkit button or show a page (the letters show on them) |
-| `1`, `2`, … | a page: Overview, README, the project's pages A–Z (their numbers show in the Toolkit) |
-| `Ctrl+b`, then `n` / `p` | the next / previous page, as in tmux (the keyboard stays where it is) |
-| `]` / `[` | next / previous run |
-| `a` | add your own action |
-| `s` | stop the command shown |
-| `z` | expand the center / back |
-| `,` | settings: plugins |
+| `Ctrl+w h/j/k/l` (or `Ctrl+h/j/k/l`) | the pane to the left / below / above / right (from a plugin's tab too) |
+| `Ctrl+w o` | only the center (again: back) |
+| Space, then a letter | run a Toolkit button or show a page (the letters show on them); in a plugin's tab, `Space Space` then the letter |
+| `Space 1`, `Space 2`, … · `gt` / `gT` | a page: Overview, README, the project's pages A–Z · the next / previous one |
+| `]r` / `[r` | the next / previous run |
+| `Space a` | add your own action |
+| `Space s` | stop the command shown |
+| `Space ,` | settings: plugins |
+| `:` | the command line: `:settings`, `:wide`, `:q`, `:w` in a form, a plugin's name (`:Files`), the place's actions; Tab completes |
 | `Ctrl+p` | the Plugins pane |
 | Esc | close menus and forms, leave the filter; then back to Projects |
 
-In each pane, `j` / `k` move (`g` / `G`: first / last) and `q` goes back to Projects:
+In each pane, `j` / `k` move (`gg` / `G`: first / last) and `q` goes back to Projects:
 
 | pane | keys |
 | --- | --- |
-| Projects | `l` the center · Enter or `o` open the project in tmux · `/` filter, in the Projects title (Enter opens the first match) · `p` / `x` pin / hide |
-| Plugins | `l` or Enter shows a plugin's view |
-| Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab; Notes: the Notes tab) · `x` hides a card in this project (bring it back from "hidden cards" below them) · the card's own keys (`?` lists them) |
-| Center: the README, a run's output | `j` / `k` scroll · `d` / `u` half a page · Esc back to the Overview |
-| Running | `l` or Enter shows its output · `s` stops it |
-| Toolkit | Enter runs the button or shows the page · `e` edits your own action |
+| Projects | `l` the center · Enter (or `Space t`) open the project in tmux · `/` filter (Enter opens the first match) · `f` and a letter · `o` add a project folder · `Space p` pin · `dd` hide · `R` look again |
+| Plugins | `l` or Enter shows a plugin's view · `f` and a letter |
+| Center: the Overview | `h` / `j` / `k` / `l` between the cards · Enter opens one (Last runs: the Toolkit; Changes: the review; Recent commits: the Git tab; Notes: the Notes tab) · `dd` hides a card in this project (bring it back from "hidden cards" below them) · the card's own keys (`?` lists them) |
+| Center: the README | `j` / `k` scroll · `Ctrl+d` / `Ctrl+u` half a page · `/` search, `n` / `N` · Esc back to the Overview |
+| Center: a run's output | the same, and `v` selects lines (then `y`), `yy` the last line, `Space y a` all of it, `dd` stops it |
+| Running | `l` or Enter shows its output · `dd` (or `Space s`) stops it |
+| Toolkit | Enter runs the button or shows the page · `i` edits your own action · `o` adds one · `dd` removes (or hides) one |
 
-A tab you open (or click in) takes the keyboard, and every tab follows the same rules (plugins
-that don't aren't loaded):
+A tab you open (or click in) takes the keyboard and follows the same rules (plugins made for
+the old keys still work as they were, until they're updated):
 
 | key | in every page |
 | --- | --- |
-| `j` `k` `g` `G` | move |
-| Enter or `l` | open, inside thumbdeck (a log, a conversation, a review) |
-| `h` or Backspace | back |
+| `j` `k` `gg` `G` | move |
+| `l` · `h` | in · out (a log, a section, a folder; back) |
+| Enter | the item's main action (review it, open its window, run it) |
 | Tab / Shift+Tab | next / previous list |
-| `v` | review the changes |
-| `o` | open outside thumbdeck (a PR in the browser) |
-| `d` / `u` | scroll the lower part (a diff, details) |
-| `r` / `S` / `?` | refresh / set up the tab / its keys |
+| `gd` · `gx` | the diff in the review page · open outside thumbdeck (a PR in the browser) |
+| `Ctrl+d` / `Ctrl+u` | scroll the lower part (a diff, details) |
+| `R` / `Space S` / `?` | refresh / set up the tab / its keys |
+| Space | its actions (`Space Space`: the Toolkit) |
 | Esc or `q` | give the keyboard back to thumbdeck |
 
 ## Install

@@ -68,6 +68,8 @@ export interface FrameInfo {
   name: string;
   /** Its HTML file, relative to the plugin's folder */
   page: string;
+  /** The plugin API it's made for (1: the keys from before thumbdeck 1.0) */
+  api: number;
   /** [name, keymap], the starting one first */
   keymaps: [string, PluginKeymap][];
   /** A tab's setup form */
@@ -77,10 +79,18 @@ export interface FrameInfo {
 
 /** What a plugin frame offers the page, for its keys */
 export interface TabExports {
-  /** A key while the frame has the keyboard (true: it was handled) */
-  handleKey(e: KeyboardEvent): boolean;
-  /** Its keys right now (for ? help, and its name in the status bar) */
+  /** Its keys right now (the page reads presses against them; ? help, the status bar's name) */
   keymap(): import("../keys/keys.ts").Keymap;
+  /** A finished press for it */
+  runPress(p: import("../keys/keys.ts").Press): void;
+  /** A key that isn't one of its actions (to the frame's own listeners) */
+  rawKey(e: KeyboardEvent): void;
+  /** :name from the command line, for the plugin (its action of that name, or its command event) */
+  command(name: string, arg: string): void;
+  /** Made for plugin API 1 (old keys, no counts) */
+  legacy(): boolean;
+  helpShown(): boolean;
+  closeHelp(): void;
 }
 
 /** What a frame can ask of the page (the page's side of the API) */

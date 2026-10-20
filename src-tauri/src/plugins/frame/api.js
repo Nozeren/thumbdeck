@@ -221,6 +221,7 @@
       say: (text, o = {}) => tell("ui.say", { text: String(text), error: !!o.error }),
       notify: (title, body) => tell("ui.notify", { title: String(title), body: body == null ? "" : String(body) }),
       confirm: (question, o = {}) => call("ui.confirm", { question: String(question), yes: o.yes, no: o.no }),
+      copy: (text) => call("ui.copy", { text: String(text) }),
       openUrl: (url) => tell("ui.openUrl", { url: String(url) }),
       openPage: (id, data) => tell("ui.openPage", { id, data: data ?? null }),
       close: () => tell("ui.close"),

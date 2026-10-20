@@ -6,6 +6,7 @@
     project,
     branch,
     message,
+    keys = "",
   }: {
     /** Who has the keyboard: THUMBDECK, GIT, REVIEW… */
     mode: string;
@@ -13,6 +14,8 @@
     /** The project's branch against its upstream, and its uncommitted files (null: not a repo) */
     branch: { name: string | null; ahead: number; behind: number; gone: boolean; changed: number } | null;
     message: { text: string; error: boolean } | null;
+    /** Keys typed so far (3d, g, Space …), like vim's showcmd */
+    keys?: string;
   } = $props();
 </script>
 
@@ -28,6 +31,7 @@
   {/if}
   <span class="spacer"></span>
   {#if message}<span class="message" class:red={message.error}>{message.text}</span>{/if}
+  {#if keys}<span class="keys">{keys}</span>{/if}
 </footer>
 
 <style>
@@ -43,4 +47,5 @@
   .spacer { flex: 1; }
   .message { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
   .message.red { color: var(--red); }
+  .keys { color: var(--yellow); font-weight: 700; min-width: 3ch; text-align: right; }
 </style>

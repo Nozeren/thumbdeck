@@ -1,13 +1,14 @@
 <script lang="ts">
   // A plugin's page in a frame (docs/plugin-spec.md): answers its calls to window.thumbdeck
   // (files, commands and storage go to the Rust side with the plugin and project attached),
-  // sends it events, and gives it keys: its declared actions, or the raw key. Offers
-  // handleKey / keymap like the built-in tabs.
+  // sends it events, and gives it keys: its declared actions, or the raw key. The page reads
+  // the keys (sequences, counts) against keymap() and hands finished presses to runPress.
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { bind, keyName, type Keymap } from "../keys/keys.ts";
+  import { copyText } from "../clipboard.ts";
+  import { bind, type Keymap, type Press } from "../keys/keys.ts";
   import KeyHelp from "../keys/KeyHelp.svelte";
   import type { ReviewRequest } from "../review/types.ts";
   import type { FrameInfo, Host } from "./types.ts";
@@ -51,7 +52,7 @@
 
   // The page's address carries its context; it doesn't change while the frame lives
   // svelte-ignore state_referenced_locally
-  const src = frameUrl(page ? { ...info, page } : info, { surface, id: surfaceId, project, data, api: 1, thumbdeck });
+  const src = frameUrl(page ? { ...info, page } : info, { surface, id: surfaceId, project, data, api: info.api ?? 1, thumbdeck });
 
   // ------------------------------------------------------------ talking to the frame
   // Plain copies: the page's state (a setup, say) is a proxy that can't be sent as it is
@@ -76,32 +77,57 @@
   let mapName = $state<string | null>(null);
   const current = $derived(maps.find(([n]) => n === mapName)?.[1] ?? maps[0]?.[1] ?? null);
 
-  /** Its keys right now, with thumbdeck's own (setup, help, leave) for ? */
+  /** Motions a count repeats */
+  const REPEATED = new Set(["down", "up", "left", "right", "page-down", "page-up", "full-down", "full-up", "next-match", "previous-match",
+    "next-change", "previous-change", "next-thread", "previous-thread", "next-file", "previous-file", "next-error", "previous-error", "find-letter", "find-letter-back"]);
+
+  /** Made for plugin API 1: its keys are the ones from before thumbdeck 1.0 (no counts, S for setup) */
+  export const legacy = () => (info.api ?? 1) < 2;
+
+  /** Its keys right now, with thumbdeck's own (setup, help, leave) where it doesn't bind them */
   export function keymap(): Keymap {
     const own = current?.bindings ?? [];
     const bound = new Set(own.flatMap((b) => b.keys));
-    const extra = [bind("S", "setup", "set up this tab"), bind("?", "help", "all keys"), bind(["q", "Escape"], "leave", "give the keyboard back to thumbdeck")]
+    const extra = [bind(legacy() ? "S" : "Space S", "setup", "set up this tab"), bind("?", "help", "all keys"), bind(["q", "Escape"], "leave", "give the keyboard back to thumbdeck")]
       .map((b) => ({ ...b, keys: b.keys.filter((k) => !bound.has(k)) }))
       .filter((b) => b.keys.length && (surface === "tab" || b.action !== "setup"));
     return { name: current?.name ?? info.name.toUpperCase(), bindings: [...own, ...extra] };
   }
 
-  export function handleKey(e: KeyboardEvent): boolean {
-    if (help) {
-      help = false; // any key closes the help
-      return true;
+  /** ? help is over the frame (the next key closes it) */
+  export const helpShown = () => help;
+  export function closeHelp() {
+    help = false;
+  }
+
+  /** A finished press (the page read it against keymap()): the plugin's action, or thumbdeck's setup / help / leave */
+  export function runPress(p: Press) {
+    if (help) return void (help = false);
+    if (current?.bindings.some((b) => b.action === p.action)) {
+      // A motion with a count (5j, 3]e) goes as that many presses, so every plugin takes counts;
+      // other actions get the count to use (5G: the 5th)
+      if (p.count && p.count > 1 && REPEATED.has(p.action)) {
+        for (let i = 0; i < Math.min(p.count, 500); i++) event("key", { action: p.action, key: p.key, count: null, arg: p.arg ?? null });
+        return;
+      }
+      return event("key", { action: p.action, key: p.key, count: p.count, arg: p.arg ?? null });
     }
-    const key = keyName(e);
-    const b = current?.bindings.find((x) => x.keys.includes(key));
-    if (b) event("key", { action: b.action, key });
-    else if (key === "?") help = true;
-    else if (key === "S" && surface === "tab") onEditSetup();
-    else if (key === "Escape" || key === "q") onRelease();
-    else {
-      const { key: k, code, ctrlKey, metaKey, altKey, shiftKey } = e;
-      post({ kind: "rawkey", key: { key: k, code, ctrlKey, metaKey, altKey, shiftKey } });
-    }
-    return true;
+    if (p.action === "help") help = true;
+    else if (p.action === "setup" && surface === "tab") onEditSetup();
+    else if (p.action === "leave") onRelease();
+  }
+
+  /** :name on the command line: its action of that name, or the command event (:!ls, :grep x) */
+  export function command(name: string, arg: string) {
+    if (current?.bindings.some((b) => b.action === name)) return event("key", { action: name, key: `:${name}`, count: null, arg: arg || null });
+    event("command", { name, arg });
+  }
+
+  /** A key that isn't one of its actions: to its own keydown listeners */
+  export function rawKey(e: KeyboardEvent) {
+    if (help) return void (help = false);
+    const { key: k, code, ctrlKey, metaKey, altKey, shiftKey } = e;
+    post({ kind: "rawkey", key: { key: k, code, ctrlKey, metaKey, altKey, shiftKey } });
   }
 
   // ------------------------------------------------------------ the calls it makes
@@ -159,6 +185,7 @@
         return message;
       }
       case "ui.say": return say(p.text, p.error);
+      case "ui.copy": return copyText(p.text);
       case "ui.confirm":
         return ask(p.question, { title: info.plugin_name, kind: "warning", okLabel: p.yes ?? "Yes", cancelLabel: p.no ?? "No" });
       case "ui.openReview": {

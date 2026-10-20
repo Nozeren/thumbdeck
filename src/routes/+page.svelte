@@ -15,8 +15,9 @@
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import StatusBar from "$lib/StatusBar.svelte";
   import SettingsDialog from "$lib/settings/SettingsDialog.svelte";
-  import { actionFor, keysLabel } from "$lib/keys/keys";
-  import { CENTER, DIALOG, FILTER, KIT, MAIN, OVERVIEW, PLUGINS, PREFIX, PROJECTS, REVIEW, RUNNING, TOOLKIT } from "$lib/keys/maps";
+  import { bind, keyName, KeyReader, keysLabel, times, type Binding, type Fed, type Keymap, type Press } from "$lib/keys/keys";
+  import { CENTER, COMMAND, DIALOG, FILTER, GLOBAL_ACTIONS, KIT, MAIN, MOVED, OUTPUT, OUTPUT_VISUAL, OVERVIEW, PLUGINS, PROJECTS, REVIEW, RUNNING, TOOLKIT } from "$lib/keys/maps";
+  import { copyText, linesWord } from "$lib/clipboard";
   import Overview from "$lib/overview/Overview.svelte";
   import type { ReviewRequest } from "$lib/review/types";
   import { combine, pickMood } from "$lib/avatar/mood";
@@ -63,7 +64,7 @@
   // (shownPage says which), or a run
   let shownTab = $state<number | null>(null);
   let shownPage = $state<"overview" | "readme">("overview");
-  let overviewRef = $state<{ handleKey(e: KeyboardEvent): boolean; keymap(): import("$lib/keys/keys").Keymap } | null>(null);
+  let overviewRef = $state<{ run(p: import("$lib/keys/keys").Press): boolean; keymap(): import("$lib/keys/keys").Keymap } | null>(null);
   // The project's Overview cards from plugins
   let cards = $state<CardInfo[]>([]);
   // The pane with the keyboard, like a split in nvim or a pane in tmux: Ctrl+h/j/k/l moves
@@ -261,10 +262,12 @@
 
   // ------------------------------------------------------------ keyboard
   let hints = $state(false); // Space pressed: Toolkit buttons show their letters
-  let prefix = $state(false); // Ctrl+b pressed: n / p come next, as in tmux
   let helpOpen = $state(false);
   let filterEl = $state<HTMLInputElement | null>(null);
-  const HINT_KEYS = "asdfghjkl;qwertyuiopzxcvbnm";
+  // The Toolkit's letters (Space, then the letter): not the shared Space letters
+  const HINT_KEYS = "dgjklqrucvbnmxzDGJKLQUCVBNMXZ";
+  // The first start of 1.0: what changed in the keys
+  let whatsNew = $state(false);
 
 
   function move(delta: number | "first" | "last") {
@@ -324,16 +327,66 @@
     return moveCursor(next ?? kitCursor, last + 1, 0);
   }
 
-  // The center's README or run output, scrolled from the keyboard
-  function scrollCenter(how: "down" | "up" | "page-down" | "page-up" | "first" | "last") {
+  // The center's README or run output, scrolled from the keyboard (n times)
+  function scrollCenter(how: string, n = 1) {
     const el = current ? outputEl : readmeEl;
     if (!el) return;
     const half = el.clientHeight / 2;
-    const by = { down: 40, up: -40, "page-down": half, "page-up": -half, first: -el.scrollHeight, last: el.scrollHeight }[how];
-    el.scrollBy({ top: by });
+    const by: Record<string, number> = { down: 40 * n, up: -40 * n, "page-down": half * n, "page-up": -half * n, "full-down": el.clientHeight * n, "full-up": -el.clientHeight * n, first: -el.scrollHeight, last: el.scrollHeight };
+    if (how in by) el.scrollBy({ top: by[how] });
   }
 
-  // Ctrl+b n / p: the next / previous page (then the run shown last), round and round. The
+  // Lines selected in a run's output, the vim way (V, then j / k, then y): indexes into its lines
+  let visual = $state<{ anchor: number; cursor: number } | null>(null);
+  const visualFrom = $derived(visual ? Math.min(visual.anchor, visual.cursor) : -1);
+  const visualTo = $derived(visual ? Math.max(visual.anchor, visual.cursor) : -1);
+  $effect(() => {
+    void shownRun;
+    visual = null; // another run: no selection
+  });
+
+  async function yank(lines: string[], what: string) {
+    if (!lines.length) return say("Nothing to copy yet");
+    try {
+      await copyText(lines.join("\n"));
+      say(`Copied ${what}`);
+    } catch {
+      say("Couldn't copy", true);
+    }
+  }
+
+  function outputKey(p: Press): boolean {
+    const { action } = p;
+    const lines = current?.lines ?? [];
+    if (visual) {
+      const half = Math.max(1, Math.floor((outputEl?.clientHeight ?? 400) / 2 / 18));
+      const n = times(p);
+      const to = { down: visual.cursor + n, up: visual.cursor - n, first: 0, last: p.count ? p.count - 1 : lines.length - 1, "page-down": visual.cursor + half * n, "page-up": visual.cursor - half * n, "full-down": visual.cursor + 2 * half * n, "full-up": visual.cursor - 2 * half * n }[action];
+      if (to !== undefined) {
+        visual = { ...visual, cursor: Math.max(0, Math.min(lines.length - 1, to)) };
+        tick().then(() => outputEl?.querySelector(".vcur")?.scrollIntoView({ block: "nearest" }));
+      } else if (action === "yank") {
+        const picked = lines.slice(visualFrom, visualTo + 1).map((l) => l.text);
+        visual = null;
+        yank(picked, linesWord(picked.length));
+      } else if (action === "visual" || action === "visual-line") visual = null;
+      else return false;
+      return true;
+    }
+    if (action === "visual" || action === "visual-line") {
+      if (!lines.length) return say("No output to select yet"), true;
+      visual = { anchor: lines.length - 1, cursor: lines.length - 1 };
+      tick().then(() => outputEl?.querySelector(".vcur")?.scrollIntoView({ block: "nearest" }));
+    } else if (action === "yank") yank(lines.slice(-times(p)).map((l) => l.text), times(p) === 1 ? "the last line" : `the last ${linesWord(times(p))}`);
+    else if (action === "yank-all") yank([`$ ${current!.command}`, ...lines.map((l) => l.text)], `the whole output (${linesWord(lines.length)})`);
+    else if (action === "delete") {
+      if (current && current.endedAt === null) stop(current);
+      else say("It has ended already");
+    } else return readmeKey(p);
+    return true;
+  }
+
+  // gt / gT: the next / previous page (then the run shown last), round and round. The
   // keyboard stays where it is.
   function cycleTabs(delta: number) {
     const list = shownPages.map((p) => p.page);
@@ -352,118 +405,191 @@
     showRun(list[(i < 0 ? list.length - 1 : i + delta + list.length) % list.length].id);
   }
 
+  // ------------------------------------------------------------ reading keys
+  // One KeyReader puts presses together (sequences like gg or ]c, counts like 5j, a letter
+  // after f) against the keymap of the place with the keyboard plus MAIN's; a plugin's tab or
+  // view gets the finished presses (runPress), its other keys raw.
+  const reader = new KeyReader();
+  let keyPending = $state(""); // what's typed so far, in the status bar (vim's showcmd)
+  let keyMenu = $state<[string, Binding][]>([]); // after Space: what can come next
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Toolkit buttons: Space (on thumbdeck's own panes) or Space Space (anywhere), then the letter
+  // on the button. Not the shared Space letters (s stop, p pin, f filter…), so they never meet.
+  const kitBindings = $derived.by((): Binding[] => {
+    if (shownView || !details) return [];
+    const n = Math.min(HINT_KEYS.length, details.actions.length + pages.length);
+    return Array.from({ length: n }, (_, i) => {
+      const a = details!.actions[i];
+      const label = a ? a.label : (pages[i - details!.actions.length]?.title ?? "");
+      return bind([`Space Space ${HINT_KEYS[i]}`, ...(keysToTab ? [] : [`Space ${HINT_KEYS[i]}`])], `toolkit:${i}`, label);
+    });
+  });
+
+  /** The keys right now: the place's, then MAIN's (in a plugin's tab only the global ones), then the Toolkit's letters */
+  function placeMap(): Keymap {
+    if (pluginPage && pageRef) return pageRef.keymap();
+    const place = keysToTab && activeTab ? activeTab.keymap() : pane === "center" && overviewShown ? (overviewRef?.keymap() ?? OVERVIEW) : paneKeys;
+    const taken = new Set(place.bindings.flatMap((b) => b.keys));
+    const main = (keysToTab ? MAIN.bindings.filter((b) => GLOBAL_ACTIONS.has(b.action)) : MAIN.bindings)
+      .map((b) => ({ ...b, keys: b.keys.filter((k) => !taken.has(k)) }))
+      .filter((b) => b.keys.length);
+    return { ...place, bindings: [...place.bindings, ...main, ...kitBindings] };
+  }
+  const legacyKeys = () => !!((pluginPage && pageRef?.legacy()) || (keysToTab && activeTab?.legacy()));
+
   function onKey(e: KeyboardEvent) {
-    // The review page covers everything: all keys are its own (Esc and q close it)
-    // (a key it doesn't use, typed into its comment box, goes to the box)
+    // The review page covers everything: it reads its own keys (but : is the page's command line)
     if (review) {
+      if (e.key === ":" && !(e.target instanceof HTMLElement && e.target.closest("input, textarea"))) return void (e.preventDefault(), openCmd(":"));
       if (reviewRef?.handleKey(e)) e.preventDefault();
       return;
     }
-    // A plugin's page covers everything too (Esc or q close it, unless it uses them)
-    if (pluginPage) {
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
-      pageRef?.handleKey(e);
-      return;
-    }
+    if (cmd) return; // the : or / line has the keyboard (its field takes the keys)
     const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select");
-    const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer;
+    const dialog = form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer || whatsNew;
     // Ctrl+h/j/k/l: the next pane that way, from anywhere (a plugin's tab too)
-    if (e.ctrlKey && !e.altKey && !e.metaKey && !dialog && ["h", "j", "k", "l"].includes(e.key)) {
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !dialog && !pluginPage && ["h", "j", "k", "l"].includes(e.key)) {
       e.preventDefault();
       if (typing) (e.target as HTMLElement).blur();
+      reader.reset();
+      keyPending = "";
+      keyMenu = [];
       hints = false;
       goPane(e.key as "h" | "j" | "k" | "l");
       return;
     }
-    // Ctrl+b, then n / p: the next / previous tab, as in tmux (from a plugin's tab too)
-    if (prefix && !["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
-      e.preventDefault();
-      prefix = false;
-      const action = actionFor(PREFIX, e);
-      if (action === "next-tab" || action === "previous-tab") cycleTabs(action === "next-tab" ? 1 : -1);
-      return;
-    }
-    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "b" && !dialog) {
-      e.preventDefault();
-      prefix = true;
-      return;
-    }
-    // Ctrl+p: the Plugins pane has the keyboard (anywhere)
-    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "p" && !dialog) {
-      e.preventDefault();
-      if (!views.length) return say("No plugin has a view: plugins with one show in the Plugins pane");
-      wide = false;
-      pane = "plugins";
-      return;
-    }
-    // 1 Overview, 2 README, 3… the project's pages A–Z
-    if (/^[1-9]$/.test(e.key) && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey && details) {
-      const p = shownPages[Number(e.key) - 1];
-      if (p) showPageItem(p.page);
-      pane = "center";
-      e.preventDefault();
-      return;
-    }
-    if (e.key === "z" && !typing && !dialog && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      wide = !wide;
-      if (wide) pane = "center"; // the others are hidden
-      e.preventDefault();
-      return;
-    }
-    // The shown tab has the keyboard: its keys, and nothing of thumbdeck's but Esc
-    if (keysToTab && activeTab && !typing && !dialog) {
-      if (!activeTab.handleKey(e) && e.key === "Escape") pane = "projects";
-      e.preventDefault();
-      return;
-    }
+    // In a form, :w (or Ctrl+s) saves
+    if (form && e.ctrlKey && e.key === "s") return void (e.preventDefault(), saveForm());
     // Enter / Space on a button you reached with the keyboard (Tab) press it, not thumbdeck's
-    // Enter (open in tmux) or Space (hints). A clicked button keeps the focus too, but not
-    // :focus-visible, so after a click the shortcuts work as usual.
+    // Enter or Space. A clicked button keeps the focus too, but not :focus-visible.
     const button = e.target instanceof HTMLElement ? e.target.closest("button") : null;
     if ((e.key === "Enter" || e.key === " ") && button?.matches(":focus-visible")) return;
-    if (e.key === "Escape") {
-      // Esc closes what's open; with nothing open, the projects get the keyboard back
-      if (!(addMenu || dialog || hints || typing)) pane = "projects";
+    if (e.key === "Escape" && !reader.waiting && (addMenu || dialog || typing)) {
+      // Esc closes what's open
       addMenu = false;
       form = null;
       setupForm = null;
       settingsOpen = false;
+      whatsNew = false;
       if (updateState !== "installing") updateDialog = false;
-      hints = false;
       helpOpen = false;
       if (typing) (e.target as HTMLElement).blur();
       return;
     }
     if (helpOpen && e.key === "?") return void (helpOpen = false);
-    if (typing || dialog || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typing || dialog || e.metaKey) return;
+    // ? help over a plugin's frame: the next key closes it
+    const frame = pluginPage ? pageRef : keysToTab ? activeTab : null;
+    if (frame?.helpShown()) return void (e.preventDefault(), frame.closeHelp());
+    const map = placeMap();
+    if (handleFed(reader.feed(map, keyName(e), { counts: !legacyKeys() }), e, map)) e.preventDefault();
+  }
 
-    if (hints) {
-      e.preventDefault();
-      hints = false;
-      const i = HINT_KEYS.indexOf(e.key);
+  /** What the reader made of a key; true: it was thumbdeck's (or a plugin's) */
+  function handleFed(fed: Fed, e: KeyboardEvent | null, map: Keymap): boolean {
+    clearTimeout(flushTimer);
+    if (fed.kind === "wait") {
+      keyPending = fed.pending;
+      keyMenu = fed.pending.startsWith("Space") ? reader.next(map) : [];
+      hints = fed.pending === "Space Space " || (fed.pending === "Space " && !keysToTab && !pluginPage);
+      // a shorter key that's waiting runs after a second (vim's timeoutlen)
+      flushTimer = setTimeout(() => {
+        const f = reader.flush();
+        if (f) handleFed({ kind: "action", press: f }, null, map);
+      }, 1000);
+      return true;
+    }
+    keyPending = "";
+    keyMenu = [];
+    hints = false;
+    if (fed.kind === "action") {
+      runPress(fed.press);
+      if (fed.then) handleFed(fed.then, e, map);
+      return true;
+    }
+    if (fed.cancelled) {
+      const moved = MOVED[fed.cancelled[0]];
+      if (moved) say(moved);
+      return true;
+    }
+    if (!e) return false;
+    // Not a key here: a plugin's own listeners get it; on thumbdeck's panes, a key that moved says where
+    const frame = pluginPage ? pageRef : keysToTab ? activeTab : null;
+    if (frame) {
+      frame.rawKey(e);
+      return !e.ctrlKey && !e.altKey;
+    }
+    const name = keyName(e);
+    if (MOVED[name]) return say(MOVED[name]), true;
+    return false;
+  }
+
+  /** A finished press: thumbdeck's everywhere-keys, then the place's */
+  function runPress(p: Press) {
+    if (p.action.startsWith("toolkit:")) {
+      const i = Number(p.action.slice(8));
       const a = details?.actions[i];
       const page = pages[i - (details?.actions.length ?? 0)];
-      if (i >= 0 && a) run(a);
-      else if (i >= 0 && page) showPageItem(page.page);
+      if (a) run(a);
+      else if (page) showPageItem(page.page);
       return;
     }
-    if (paneKey(e)) return void e.preventDefault();
-    switch (actionFor(MAIN, e)) {
-      case "toolkit": hints = !shownView && kitTotal > 0; break;
+    switch (p.action) {
+      case "pane-side": case "pane-updown": return goPane(p.key.slice(-1) as "h" | "j" | "k" | "l");
+      case "wide":
+        wide = !wide;
+        if (wide) pane = "center"; // the others are hidden
+        return;
+      case "page": {
+        if (!details) return;
+        const page = shownPages[Number(p.key.slice(-1)) - 1];
+        if (page) showPageItem(page.page);
+        pane = "center";
+        return;
+      }
+      case "cycle-page": return cycleTabs(p.key === "gT" ? -times(p) : times(p));
+      case "next-run": return cycleRuns(times(p));
+      case "previous-run": return cycleRuns(-times(p));
+      case "settings": return openSettings();
+      case "command": return void openCmd(":");
+      case "toolkit": return; // Space Space alone: the letters showed while it waited
+      case "plugins":
+        if (!views.length) return say("No plugin has a view: plugins with one show in the Plugins pane");
+        wide = false;
+        pane = "plugins";
+        return;
+    }
+    if (pluginPage && pageRef) return pageRef.runPress(p);
+    if (keysToTab && activeTab) return activeTab.runPress(p);
+    if (paneAction(p)) return;
+    switch (p.action) {
       case "add": if (selected) openForm(); break;
       case "stop": if (current && current.endedAt === null) stop(current); break;
-      case "run": cycleRuns(e.key === "[" ? -1 : 1); break;
       case "help": helpOpen = !helpOpen; break;
-      case "settings": openSettings(); break;
-      default: return;
     }
-    e.preventDefault();
+  }
+
+  /** f / F then a letter: the next (previous) item starting with it, round the list */
+  function jumpLetter<T>(list: T[], at: number, p: Press, name: (x: T) => string): T | null {
+    const back = p.action === "find-letter-back";
+    const c = (p.arg ?? "").toLowerCase();
+    for (let k = 1; k <= list.length; k++) {
+      const i = (((at + (back ? -k : k)) % list.length) + list.length) % list.length;
+      if (name(list[i]).toLowerCase().startsWith(c)) return list[i];
+    }
+    say(`Nothing here starts with ${p.arg}`);
+    return null;
   }
 
   // The keys of the pane with the keyboard; false: not one of them (MAIN's may be)
-  function paneKey(e: KeyboardEvent): boolean {
-    const action = actionFor(paneKeys, e);
-    if (action === null) return false;
+  function paneAction(p: Press): boolean {
+    const { action } = p;
+    const n = times(p);
+    if (action === "leave" && pane === "center" && visual) {
+      visual = null;
+      return true;
+    }
     if (action === "leave") {
       if (pane === "center" && !shownView && !overviewShown && details) showTab("overview");
       else pane = "projects";
@@ -471,37 +597,181 @@
     }
     if (pane === "projects") {
       switch (action) {
-        case "down": move(1); break;
-        case "up": move(-1); break;
-        case "first": case "last": move(action); break;
+        case "down": move(n); break;
+        case "up": move(-n); break;
+        case "first": move("first"); break;
+        case "last":
+          if (p.count) (move("first"), move(p.count - 1));
+          else move("last");
+          break;
         case "open": pane = "center"; break;
-        case "outside": openInTmux(); break;
-        case "filter": openFilter(); break;
+        case "main": case "terminal": openInTmux(); break;
+        case "search": openFilter(); break;
+        case "find-letter": case "find-letter-back": {
+          const to = jumpLetter(navOrder, navOrder.findIndex((x) => x.path === selected?.path), p, (x) => x.name);
+          if (to) select(to);
+          break;
+        }
+        case "new": pickFolder("add"); break;
+        case "delete": if (selected) edit("remove", selected.path); break;
         case "pin": if (selected) edit("pin", selected.path); break;
-        case "remove": if (selected) edit("remove", selected.path); break;
+        case "refresh": void invoke<ProjectList>("list_projects").then(applyList); say("Looked for projects again"); break;
+        default: return false;
       }
-    } else if (pane === "plugins") {
-      const step = { down: 1, up: -1, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
+      return true;
+    }
+    if (pane === "plugins") {
+      const step = { down: n, up: -n, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
       if (step !== undefined) paneCursor = moveCursor(paneCursor, views.length, step);
       else if (action === "open" && views[paneCursor]) openView(views[paneCursor].plugin);
-    } else if (pane === "center") {
-      if (overviewShown) overviewRef?.handleKey(e);
-      else scrollCenter(action as Parameters<typeof scrollCenter>[0]);
-    } else if (pane === "running") {
-      const step = { down: 1, up: -1, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
+      else if (action === "find-letter" || action === "find-letter-back") {
+        const to = jumpLetter(views, paneCursor, p, (v) => v.name);
+        if (to) paneCursor = views.indexOf(to);
+      } else return false;
+      return true;
+    }
+    if (pane === "center") {
+      if (overviewShown) return overviewRef?.run(p) ?? false;
+      if (current) return outputKey(p);
+      return readmeKey(p);
+    }
+    if (pane === "running") {
+      const step = { down: n, up: -n, first: "first", last: "last" }[action] as number | "first" | "last" | undefined;
       const r = runList[runCursor];
       if (step !== undefined) runCursor = moveCursor(runCursor, runList.length, step);
       else if (action === "open" && r) showRun(r.id);
-      else if (action === "stop-this" && r?.endedAt === null) stop(r);
-    } else if (pane === "toolkit") {
+      else if ((action === "delete" || action === "stop") && r?.endedAt === null) stop(r);
+      else return false;
+      return true;
+    }
+    if (pane === "toolkit") {
       const a = kitOrder[kitCursor];
       const page = pages[kitCursor - kitOrder.length];
-      if (["down", "up", "left", "right", "first", "last"].includes(action)) kitCursor = kitMove(action);
+      if (["down", "up", "left", "right"].includes(action)) for (let i = 0; i < n; i++) kitCursor = kitMove(action);
+      else if (action === "first" || action === "last") kitCursor = kitMove(action);
       else if (action === "press" && a) run(a);
       else if (action === "press" && page) showPageItem(page.page);
       else if (action === "edit" && a?.source === "custom") openForm(a);
+      else if (action === "new") openForm();
+      else if (action === "delete" && a) {
+        const custom = a.source === "custom";
+        void ask(custom ? `Delete your action ${a.label}?` : `Hide ${a.label} in this project? (Toolkit › show hidden brings it back)`, { title: a.label, kind: "warning", okLabel: custom ? "Delete" : "Hide" })
+          .then((yes) => {
+            if (yes) editActions(custom ? "delete" : "hide", a.id);
+          });
+      } else return false;
+      return true;
     }
-    return true;
+    return false;
+  }
+
+  // ------------------------------------------------------------ the : and / line
+  let cmd = $state<{ kind: ":" | "/"; text: string } | null>(null);
+  let cmdEl = $state<HTMLInputElement | null>(null);
+  async function openCmd(kind: ":" | "/") {
+    reader.reset();
+    keyPending = "";
+    cmd = { kind, text: "" };
+    await tick();
+    cmdEl?.focus();
+  }
+  /** :name: thumbdeck's, a plugin view's name, or one of the place's actions */
+  const COMMANDS: Record<string, string> = {
+    settings: "Settings › Plugins", plugins: "Settings › Plugins", q: "leave", w: "save the form", e: "refresh", wide: "only the center",
+    help: "the keys here", action: "add your own action",
+  };
+  function commandNames(): string[] {
+    const own = placeMap().bindings.map((b) => b.action).filter((a) => !a.startsWith("toolkit:"));
+    return [...new Set([...Object.keys(COMMANDS), ...views.map((v) => v.name), ...own])];
+  }
+  function cmdKey(e: KeyboardEvent) {
+    if (!cmd) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cmd = null;
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const c = cmd;
+      cmd = null;
+      if (c.kind === "/") findText(c.text, 1);
+      else command(c.text.trim());
+    } else if (e.key === "Tab" && cmd.kind === ":") {
+      e.preventDefault();
+      const t = cmd.text.toLowerCase();
+      const m = commandNames().filter((n) => n.toLowerCase().startsWith(t));
+      if (m.length === 1) cmd.text = m[0];
+      else if (m.length) say(m.slice(0, 14).join("  "));
+    }
+  }
+  function command(text: string) {
+    if (!text) return;
+    if (review) {
+      if (!reviewRef?.command(text)) say(`There's no :${text} on the review page (:w posts, :approve, :request, :q)`);
+      return;
+    }
+    const [name, ...rest] = text.startsWith("!") ? ["!", text.slice(1)] : text.split(" ");
+    const arg = rest.join(" ");
+    const press = (action: string) => runPress({ action, key: `:${name}`, count: null, ...(arg ? { arg } : {}) });
+    switch (name) {
+      case "settings": case "plugins": return openSettings();
+      case "q": case "quit": return press("leave");
+      case "w": case "write":
+        if (form) return void saveForm();
+        break;
+      case "e": case "edit": return press("refresh");
+      case "wide": return press("wide");
+      case "help": return void (helpOpen = true);
+      case "action": if (selected) openForm(); return;
+    }
+    const view = views.find((v) => v.name.toLowerCase() === name.toLowerCase());
+    if (view) return openView(view.plugin);
+    if (placeMap().bindings.some((b) => b.action === name)) return press(name);
+    const frame = pluginPage ? pageRef : keysToTab ? activeTab : null;
+    if (frame) return frame.command(name, arg);
+    say(`There's no :${name} here (Tab completes)`);
+  }
+
+  // ------------------------------------------------------------ the README and a run's output
+  // / searches the text shown; n / N go to the next / previous match
+  let searchFor = "";
+  let searchAt = -1;
+  function findText(text: string | null, by: number) {
+    if (text !== null) [searchFor, searchAt] = [text, -1];
+    const el = current ? outputEl : readmeEl;
+    const q = searchFor.toLowerCase();
+    if (!el || !q) return say("Nothing to look for: / first");
+    const all: Range[] = [];
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const t = node.textContent!.toLowerCase();
+      for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+        const r = document.createRange();
+        r.setStart(node, i);
+        r.setEnd(node, i + q.length);
+        all.push(r);
+      }
+    }
+    if (!all.length) return say(`"${searchFor}" isn't there`);
+    searchAt = (((searchAt + by) % all.length) + all.length) % all.length;
+    const r = all[searchAt];
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(r);
+    const box = r.getBoundingClientRect();
+    const view = el.getBoundingClientRect();
+    if (box.top < view.top || box.bottom > view.bottom) el.scrollBy({ top: box.top - view.top - view.height / 3 });
+    say(`${searchAt + 1} of ${all.length}: ${searchFor}`);
+  }
+
+  function readmeKey(p: Press): boolean {
+    switch (p.action) {
+      case "search": openCmd("/"); return true;
+      case "next-match": findText(null, times(p)); return true;
+      case "previous-match": findText(null, -times(p)); return true;
+      case "down": case "up": case "page-down": case "page-up": case "full-down": case "full-up": case "first": case "last":
+        scrollCenter(p.action, times(p));
+        return true;
+    }
+    return false;
   }
 
   // / (or the / by the title): the filter, in the Projects title
@@ -640,7 +910,7 @@
     const timer = setInterval(() => !document.hidden && look(), 5000);
     return () => clearInterval(timer);
   });
-  let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean; keymap(): import("$lib/keys/keys").Keymap } | null>(null);
+  let reviewRef = $state<{ handleKey(e: KeyboardEvent): boolean; keymap(): import("$lib/keys/keys").Keymap; command(text: string): boolean; typedKeys(): string } | null>(null);
   let avatar = $state(""); // the character (settings); "none": no character
   let avatarRef = $state<{ pickCharacter(): void } | null>(null);
   let lastInput = $state(Date.now());
@@ -742,7 +1012,8 @@
   const paneKeys = $derived(
     pane === "plugins" ? PLUGINS
     : pane === "center" && overviewShown ? (overviewRef?.keymap() ?? OVERVIEW)
-    : pane === "center" ? { ...CENTER, name: current ? "OUTPUT" : shownView ? "VIEW" : tabShown ? "TAB" : "README" }
+    : pane === "center" && current ? (visual ? OUTPUT_VISUAL : OUTPUT)
+    : pane === "center" ? { ...CENTER, name: shownView ? "VIEW" : tabShown ? "TAB" : "README" }
     : pane === "running" ? RUNNING
     : pane === "toolkit" ? KIT
     : PROJECTS,
@@ -751,8 +1022,8 @@
   const barKeys = $derived(
     review ? (reviewRef?.keymap() ?? REVIEW)
     : pluginPage && pageRef ? pageRef.keymap()
-    : form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer ? DIALOG
-    : prefix ? PREFIX
+    : cmd ? { ...COMMAND, name: cmd.kind === "/" ? "SEARCH" : "COMMAND" }
+    : form || setupForm || helpOpen || updateDialog || settingsOpen || catalogOffer || whatsNew ? DIALOG
     : filtering ? FILTER
     : hints ? TOOLKIT
     : keysToTab && activeTab ? activeTab.keymap()
@@ -887,6 +1158,15 @@
     return r.code === 0 ? "done" : "failed";
   }
 
+  // The first start of 1.0 shows what changed in the keys (once)
+  onMount(() => {
+    try {
+      if (!localStorage.getItem("thumbdeck.keys-1.0")) {
+        localStorage.setItem("thumbdeck.keys-1.0", "seen");
+        whatsNew = true;
+      }
+    } catch {}
+  });
   onMount(() => {
     invoke<ProjectList>("list_projects").then((list) => applyList(list, true));
     getVersion().then((v) => (version = v));
@@ -1036,7 +1316,7 @@
     <section class="card pane" class:focus={pane === "plugins"} data-pane="plugins">
         <h2>
           <span class="dot aqua"></span>Plugins
-          <button class="icon settings-btn" title="Settings: plugins (,){Object.keys(pluginUpdates).length ? ` · ${Object.keys(pluginUpdates).length} plugin update${Object.keys(pluginUpdates).length === 1 ? '' : 's'}` : ''}"
+          <button class="icon settings-btn" title="Settings: plugins (Space ,){Object.keys(pluginUpdates).length ? ` · ${Object.keys(pluginUpdates).length} plugin update${Object.keys(pluginUpdates).length === 1 ? '' : 's'}` : ''}"
                   onclick={openSettings}>⚙{#if Object.keys(pluginUpdates).length}<span class="menu-new">↑{Object.keys(pluginUpdates).length}</span>{/if}</button>
         </h2>
         {#if !views.length}<p class="hint">Plugins with a view of their own show here.</p>{/if}
@@ -1086,7 +1366,7 @@
         </span>
         <span class="spacer"></span>
         <button class="tab open" title="Open in tmux (Enter)" onclick={openInTmux}> <span class="bword">Open in tmux</span></button>
-        <button class="tab" title={wide ? "Show the side panels again (z)" : "Expand: the center takes the whole window (z)"}
+        <button class="tab" title={wide ? "Show the side panels again (Ctrl+w o)" : "Expand: the center takes the whole window (Ctrl+w o)"}
                 onclick={() => (wide = !wide)}>{wide ? "⤡" : "⤢"}</button>
       </nav>
       <div class="view">
@@ -1100,7 +1380,7 @@
       {/each}
       {#if current}
         <pre class="output" bind:this={outputEl}><span class="cmd">$ {current.command}</span>
-{#each current.lines as l}<span class:err={l.stderr}>{l.text}</span>
+{#each current.lines as l, i}<span class:err={l.stderr} class:vsel={i >= visualFrom && i <= visualTo} class:vcur={visual?.cursor === i}>{l.text}</span>
 {/each}{#if current.endedAt !== null}<span class={current.code === 0 ? "ok" : "err"}>{current.code === 0 ? "✓ finished" : `✗ exited with ${current.code}`} after {elapsed(current)}</span>{/if}</pre>
       {:else if tabShown && details && shownTab !== null}
         {@const t = details.tabs[shownTab]}
@@ -1256,7 +1536,52 @@
 </main>
 
 
-<StatusBar mode={barKeys.name} project={selected?.name ?? null} branch={branchState} message={toast} />
+<StatusBar mode={barKeys.name} project={selected?.name ?? null} branch={branchState} message={toast} keys={review ? (reviewRef?.typedKeys() ?? "") : keyPending} />
+
+{#if cmd}
+  <!-- the : command line (or / search), over the status bar, like vim's -->
+  <div class="cmdline">
+    <span class="cmdkind">{cmd.kind}</span>
+    <input bind:this={cmdEl} bind:value={cmd.text} onkeydown={cmdKey} onblur={() => (cmd = null)} spellcheck="false" autocomplete="off"
+           aria-label={cmd.kind === ":" ? "Command" : "Search"} placeholder={cmd.kind === ":" ? "settings, wide, q, a plugin's name… (Tab completes)" : "search the text"} />
+  </div>
+{/if}
+
+{#if keyMenu.length}
+  <!-- after Space: what can come next, like which-key in nvim -->
+  <div class="whichkey" role="status">
+    <div class="wk-title">{keyPending.trim()} …</div>
+    <div class="wk-grid">
+      {#each keyMenu.filter(([k, b]) => b.does && !b.action.startsWith("toolkit:") && !k.includes(" ")) as [k, b] (k)}<span class="wk-key">{k}</span><span class="wk-does">{b.does}</span>{/each}
+      {#if keyMenu.some(([k]) => k.startsWith("y "))}<span class="wk-key">y …</span><span class="wk-does">copy as: {keyMenu.filter(([k]) => k.startsWith("y ")).map(([k, b]) => `${k.slice(2)} ${b.does.replace(/^copy (it )?(as )?/, "")}`).join(" · ")}</span>{/if}
+      {#if keyMenu.some(([, b]) => b.action === "page")}<span class="wk-key">1–9</span><span class="wk-does">a page (Overview, README, then the project's)</span>{/if}
+      {#if keyMenu.some(([k, b]) => b.action.startsWith("toolkit:") && !k.includes(" "))}<span class="wk-key">letter</span><span class="wk-does">the Toolkit button with that letter (shown on the buttons)</span>{/if}
+    </div>
+  </div>
+{/if}
+
+{#if whatsNew}
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (whatsNew = false)}>
+    <div class="dialog help">
+      <h2><span class="dot green"></span>Keys in thumbdeck 1.0 <span class="for">Esc to close</span></h2>
+      <p class="hint">Two rules now: a vim key means what it means in vim, everywhere; the rest is behind Space (letters shared by every place) or on the : line.</p>
+      <dl>
+        <dt>Ctrl+d / Ctrl+u</dt><dd>half a page (d / u alone did that: dd deletes, u undoes now)</dd>
+        <dt>gg / G · 5j · 3dd</dt><dd>top / bottom, and counts in front</dd>
+        <dt>v / V · yy · p</dt><dd>select, copy, paste</dd>
+        <dt>dd · x · cc · o · i</dt><dd>delete (or stop, hide) · tick · rename · new · edit</dd>
+        <dt>u · Ctrl+r · .</dt><dd>undo · redo · do it again</dd>
+        <dt>]c ]t ]f ]e ]r</dt><dd>the next change, thread, file, error, run ([ for the previous)</dd>
+        <dt>za · zR · zM</dt><dd>folds (z was wide: that's Ctrl+w o now)</dd>
+        <dt>Enter · gd · gx · R</dt><dd>the main action · the diff · open outside · refresh</dd>
+        <dt>Space</dt><dd>the place's actions: s stop, p pin, f filter, o sort, h hidden, i info, y copy as…</dd>
+        <dt>Space Space</dt><dd>the Toolkit, from anywhere · Space 1–9 the pages · gt / gT the next / previous page</dd>
+        <dt>:</dt><dd>commands: :settings, :wide, :q, :w, a plugin's name…</dd>
+      </dl>
+      <p class="hint">For a while, a key that moved says where it went instead of doing something. ? lists the keys wherever you are.</p>
+    </div>
+  </div>
+{/if}
 
 {#if review}
   <ReviewPage bind:this={reviewRef} request={review} onClose={() => (review = null)} {say} />
@@ -1286,8 +1611,8 @@
         {#each paneKeys.bindings as b}<dt>{keysLabel(b)}</dt><dd>{b.does}</dd>{/each}
         <dt class="group">EVERYWHERE</dt><dd></dd>
         {#each MAIN.bindings as b}<dt>{keysLabel(b)}</dt><dd>{b.does}</dd>{/each}
-        <dt>in a tab</dt><dd>the same keys mean the same things: j k g G move, Enter / l open, h back, Tab next list,
-          v review, o open outside, d / u scroll, r refresh, S setup, ? its keys, Esc or q give the keyboard back</dd>
+        <dt>in a tab</dt><dd>the same keys mean the same things: j k gg G move, l in, h out, Enter the main action, Tab the next list,
+          / search, v select, yy copy, dd delete, o new, i edit, R refresh, gx open outside, Space its actions, Space S its setup, ? its keys, Esc or q give the keyboard back</dd>
       </dl>
     </div>
   </div>
@@ -1497,6 +1822,8 @@
   .output { flex: 1; margin: 0; padding: 14px; overflow: auto; font: 12.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
   .output .cmd { color: var(--grey); }
   .output .err { color: var(--red); } .output .ok { color: var(--green); }
+  .output .vsel { display: inline-block; width: 100%; background: color-mix(in srgb, var(--yellow) 18%, transparent); }
+  .output .vcur { box-shadow: inset 2px 0 var(--cursor, var(--orange)); }
   .empty { padding: 20px; }
 
   /* right */
@@ -1555,4 +1882,14 @@
   :global(.primary:disabled) { opacity: 0.4; cursor: default; }
   .action:hover { border-color: var(--bg3); background: var(--bg2); }
   .play { color: var(--orange); }
+  .cmdline { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 10px;
+             background: var(--bg-dim); border-top: 1px solid var(--bg2); font: 12px var(--mono); }
+  .cmdkind { color: var(--orange); font-weight: 700; }
+  .cmdline input { flex: 1; background: none; border: 0; outline: none; padding: 0; color: var(--fg); font: 12px var(--mono); box-shadow: none; }
+  .whichkey { position: fixed; right: 14px; bottom: 30px; z-index: 65; min-width: 260px; max-width: min(560px, calc(100vw - 28px)); max-height: 60vh; overflow: auto;
+              background: var(--bg0); border: 1px solid var(--bg3); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45); padding: 10px 14px; font: 12px var(--mono); }
+  .wk-title { color: var(--orange); font-weight: 700; margin-bottom: 6px; }
+  .wk-grid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
+  .wk-key { color: var(--yellow); }
+  .wk-does { color: var(--fg); }
 </style>

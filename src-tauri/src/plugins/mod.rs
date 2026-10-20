@@ -96,6 +96,8 @@ pub struct FrameInfo {
     pub name: String,
     /// The HTML file, relative to the plugin's folder
     pub page: String,
+    /// The plugin API it's made for: its keys follow that API's rules (1: the keys before thumbdeck 1.0)
+    pub api: u32,
     /// Its keymaps, the starting one first
     pub keymaps: Vec<(String, keys::Keymap)>,
     /// A tab's setup form (fields), or its own setup page
@@ -153,6 +155,7 @@ pub fn frame_info(plugins: &[Plugin], plugin: &str, surface: &str, id: &str) -> 
         plugin_name: m.name.clone(),
         name,
         page,
+        api: m.api,
         keymaps: m.keymaps(&keys),
         fields,
         setup_page,

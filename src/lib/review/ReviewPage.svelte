@@ -12,9 +12,10 @@
   import { parseDiff, splitRows, wordDiff, type DiffFile, type Line, type Segment } from "./diff.ts";
   import { languageFor, lineHtml } from "./highlight.ts";
   import { anchorKey, commentable, commentRange, fileTree, isChange, keptText, rangeLabel, renderBody, rowsFor, suggestionText, textLines, type Anchor, type VRow } from "./review.ts";
-  import { actionFor, keyName, type Keymap } from "../keys/keys.ts";
-  import { REVIEW, REVIEW_COMMENT, REVIEW_FILES, REVIEW_POST } from "../keys/maps.ts";
+  import { keyName, KeyReader, times, type Fed, type Keymap, type Press } from "../keys/keys.ts";
+  import { MOVED, REVIEW, REVIEW_COMMENT, REVIEW_FILES, REVIEW_POST, REVIEW_VISUAL } from "../keys/maps.ts";
   import KeyHelp from "../keys/KeyHelp.svelte";
+  import { copyText, linesWord } from "../clipboard.ts";
 
   // Links go through thumbdeck, so a plugin that claimed them (Chrome) picks the profile
   const openUrl = (url: string) => invoke("open_url", { url }).catch(() => {});
@@ -162,6 +163,21 @@
     return rows.map((_, i) => i).filter((i) => i >= a && i <= b && commentable(rows[i]));
   });
 
+  // y: the selected lines (or the cursor's), as they read: the new side, or the old for a removed line
+  async function yankRows() {
+    const [a, b] = anchorRow !== null ? [Math.min(anchorRow, cursor), Math.max(anchorRow, cursor)] : [cursor, cursor];
+    const picked = rows.slice(a, b + 1).filter((r): r is Extract<VRow, { kind: "line" }> => r?.kind === "line");
+    const text = picked.map((r) => (r.right ?? r.left)?.text ?? "");
+    if (!text.length) return say("No line here to copy");
+    anchorRow = null;
+    try {
+      await copyText(text.join("\n"));
+      say(`Copied ${linesWord(text.length)}`);
+    } catch {
+      say("Couldn't copy");
+    }
+  }
+
   let diffEl = $state<HTMLElement | null>(null);
   async function scrollToCursor() {
     await tick();
@@ -250,7 +266,8 @@
 
   /** The rows a comment covers light up: the selection, the box's lines, the pending comment under the cursor */
   const lit = $derived.by(() => {
-    const s = new Set<number>(selected);
+    const s = new Set<number>();
+    if (anchorRow !== null) for (let i = Math.min(anchorRow, cursor); i <= Math.max(anchorRow, cursor); i++) if (rows[i]?.kind === "line") s.add(i);
     if (box?.kind === "comment") box.rows.forEach((i) => s.add(i));
     const r = rows[cursor];
     for (const p of r ? pendingAt(r) : []) rows.forEach((x, i) => x.kind === "line" && x.anchor && x.anchor.line >= p.start.line && x.anchor.line <= p.end.line && (x.anchor.side === p.end.side || x.anchor.side === p.start.side) && s.add(i));
@@ -395,20 +412,18 @@
     fileCursor = order[Math.max(0, Math.min(order.length - 1, to === Infinity ? order.length - 1 : to === -Infinity ? 0 : at + to))];
     showFile(fileCursor);
   }
-  function filesKey(e: KeyboardEvent): boolean {
-    switch (actionFor(REVIEW_FILES, e)) {
-      case "down": moveFile(1); break;
-      case "up": moveFile(-1); break;
+  function filesKey(p: Press) {
+    switch (p.action) {
+      case "down": moveFile(times(p)); break;
+      case "up": moveFile(-times(p)); break;
       case "first": moveFile(-Infinity); break;
       case "last": moveFile(Infinity); break;
       case "open": focus = "diff"; showFile(fileCursor, "change"); break;
-      case "viewed": toggleViewed(fileCursor, false); break;
-      case "filter": openFilter(); break;
+      case "tick": toggleViewed(fileCursor, false); break;
+      case "search": openFilter(); break;
       case "help": help = true; break;
       case "leave": focus = "diff"; break;
-      default: return false;
     }
-    return true;
   }
   async function openFilter() {
     filtering = true;
@@ -421,7 +436,12 @@
   let help = $state(false);
 
   export const keymap = (): Keymap =>
-    post ? REVIEW_POST : box ? REVIEW_COMMENT : focus === "files" ? REVIEW_FILES : anchorRow !== null ? { ...REVIEW, name: "VISUAL" } : REVIEW;
+    post ? REVIEW_POST : box ? REVIEW_COMMENT : focus === "files" ? REVIEW_FILES : anchorRow !== null ? REVIEW_VISUAL : REVIEW;
+
+  // The keys are read the vim way (sequences like ]c, counts like 5j) against the keymap of the
+  // moment: the changes, a selection (VISUAL), the file list, a comment box, the post dialog
+  const reader = new KeyReader();
+  let pendingKeys = $state("");
 
   export function handleKey(e: KeyboardEvent): boolean {
     if (help) {
@@ -432,7 +452,7 @@
     const name = keyName(e);
     if (post) {
       if (name === "Escape") post = null;
-      else if (name === "Ctrl+Enter") sendReview();
+      else if (name === "Ctrl+Enter" || name === "Ctrl+s") sendReview();
       else if (inText) return false;
       else if (["1", "2", "3"].includes(name)) post = CHOICES[Number(name) - 1].id;
       else if (name === "j" || name === "ArrowDown" || name === "k" || name === "ArrowUp") {
@@ -443,7 +463,7 @@
     }
     if (box) {
       if (name === "Escape") (box = null), (draft = "");
-      else if (name === "Ctrl+Enter") send();
+      else if (name === "Ctrl+Enter" || name === "Ctrl+s") send();
       else if (name === "Ctrl+g") suggest();
       else return false;
       return true;
@@ -454,55 +474,98 @@
       else return false;
       return true;
     }
-    if (inText) return false;
-    if (focus === "files") return filesKey(e);
+    if (inText || e.metaKey) return false;
+    const map = keymap();
+    const fed = reader.feed(map, name);
+    pendingKeys = fed.kind === "wait" ? fed.pending : "";
+    if (fed.kind === "wait") return true;
+    if (fed.kind === "none") {
+      const moved = fed.cancelled ? MOVED[fed.cancelled[0]] : MOVED[name];
+      if (moved && !["]", "["].includes(name)) say(moved);
+      return !!fed.cancelled || !!moved;
+    }
+    let f: Fed | undefined = fed;
+    while (f?.kind === "action") {
+      if (focus === "files") filesKey(f.press);
+      else runKey(f.press);
+      f = f.then;
+    }
+    return true;
+  }
+
+  function runKey(p: Press) {
     const page = 15;
+    const n = times(p);
     const r = rows[cursor];
-    switch (actionFor(REVIEW, e)) {
-      case "down": moveCursor(1); break;
-      case "up": moveCursor(-1); break;
-      case "page-down": moveCursor(page); break;
-      case "page-up": moveCursor(-page); break;
+    switch (p.action) {
+      case "down": moveCursor(n); break;
+      case "up": moveCursor(-n); break;
+      case "page-down": moveCursor(page * n); break;
+      case "page-up": moveCursor(-page * n); break;
+      case "full-down": moveCursor(2 * page * n); break;
+      case "full-up": moveCursor(-2 * page * n); break;
       case "first": cursorTo(0); break;
-      case "last": cursorTo(rows.length - 1); break;
-      case "change": jumpChange(e.key === "N" ? -1 : 1); break;
-      case "thread": nextThread(e.key === "T" ? -1 : 1); break;
-      case "file": showFile(current + (e.key === "[" ? -1 : 1)); break;
-      case "comment": startComment(); break;
-      case "select":
+      case "last": cursorTo(p.count ? Math.min(rows.length - 1, p.count - 1) : rows.length - 1); break;
+      case "next-change": case "previous-change": for (let i = 0; i < n; i++) jumpChange(p.action === "next-change" ? 1 : -1); break;
+      case "next-thread": case "previous-thread": for (let i = 0; i < n; i++) nextThread(p.action === "next-thread" ? 1 : -1); break;
+      case "next-file": showFile(current + n); break;
+      case "previous-file": showFile(current - n); break;
+      case "change": case "comment": startComment(); break;
+      case "yank": yankRows(); break;
+      case "visual": case "visual-line":
         if (anchorRow !== null) anchorRow = null;
-        else if (!canComment) say("This review is read-only");
-        else if (commentable(r)) (anchorRow = cursor), say("Selecting: j / k extend, c comments, Esc drops it");
-        else say("Pick a changed line first");
+        else if (r?.kind === "line") (anchorRow = cursor), say(`Selecting: j / k extend, y copies${canComment ? ", c comments" : ""}, Esc drops it`);
+        else say("Pick a line first");
         break;
       case "press":
-        if (anchorRow !== null) startComment();
-        else if (r?.kind === "gap") openGap(r.key);
+        if (r?.kind === "gap") openGap(r.key);
         else if (threadAt(r)?.resolved && !showResolved[threadAt(r)!.id]) showResolved[threadAt(r)!.id] = true;
         else if (threadAt(r)) startReply();
         else startComment();
         break;
-      case "resolve": resolve(); break;
-      case "viewed": toggleViewed(current); break;
-      case "split": keepCursor(() => (split = !split)); break;
-      case "whole":
-        if (!request.file) say("The whole file isn't available here");
-        else keepCursor(() => (whole = !whole)), say(whole ? "The whole file (f: only the changes)" : "Only the changes (f: the whole file)");
+      case "fold-open":
+        if (r?.kind === "gap") openGap(r.key);
+        else say("Nothing folded here: zR shows the whole file");
         break;
-      case "about": aboutOpen = !aboutOpen; break;
+      case "tick":
+        // on a thread: resolve it; elsewhere: the file is viewed
+        if (threadAt(r)) resolve();
+        else toggleViewed(current);
+        break;
+      case "split": keepCursor(() => (split = !split)); break;
+      case "unfold-all": case "fold-all":
+        if (!request.file) say("The whole file isn't available here");
+        else keepCursor(() => (whole = p.action === "unfold-all")), say(whole ? "The whole file (zM: only the changes)" : "Only the changes (zR: the whole file)");
+        break;
+      case "info": aboutOpen = !aboutOpen; break;
       case "approve": openPost("APPROVE"); break;
       case "request-changes": openPost("REQUEST_CHANGES"); break;
       case "post": openPost(null); break;
       case "files": toFiles(); break;
-      case "filter": openFilter(); break;
+      case "search": openFilter(); break;
       case "outside": if (request.about?.url) openUrl(request.about.url); else say("No page to open"); break;
       case "refresh": load(); break;
       case "help": help = true; break;
       case "leave": if (anchorRow !== null) anchorRow = null; else onClose(); break;
-      default: return false;
     }
-    return true;
   }
+
+  /** Keys typed so far, for the status bar */
+  export const typedKeys = () => pendingKeys;
+
+  /** The : line on the review page: :w posts, :approve, :request, :q, :e */
+  export function command(text: string): boolean {
+    switch (text) {
+      case "w": case "post": runKey({ action: "post", key: ":w", count: null }); return true;
+      case "approve": runKey({ action: "approve", key: ":approve", count: null }); return true;
+      case "request": case "request-changes": runKey({ action: "request-changes", key: ":request", count: null }); return true;
+      case "q": case "quit": onClose(); return true;
+      case "e": case "refresh": load(); return true;
+      case "wide": case "split": runKey({ action: "split", key: ":split", count: null }); return true;
+    }
+    return false;
+  }
+
   function openGap(key: string) {
     if (!file) return;
     if (!request.file) return say("The hidden lines aren't available here");
@@ -589,7 +652,7 @@
     {/each}
     <div class="tfoot">
       {#if actions?.reply}<button onclick={() => ((cursor = rows.findIndex((r) => threadAt(r)?.id === t.id)), startReply())}>↩ Reply {@render kbd("Enter")}</button>{/if}
-      {#if actions?.resolve}<button onclick={() => ((cursor = rows.findIndex((r) => threadAt(r)?.id === t.id)), resolve())}>{t.resolved ? "Open again" : "✓ Resolve"} {@render kbd("z")}</button>{/if}
+      {#if actions?.resolve}<button onclick={() => ((cursor = rows.findIndex((r) => threadAt(r)?.id === t.id)), resolve())}>{t.resolved ? "Open again" : "✓ Resolve"} {@render kbd("x")}</button>{/if}
       <span class="spacer"></span><span>{t.resolved ? "resolved" : "open"}</span>
     </div>
   </div>
@@ -610,12 +673,12 @@
       </span>
     </div>
     <span class="spacer"></span>
-    {#if request.about}<button class="btn" class:on={aboutOpen} title="About the pull request (i)" onclick={() => (aboutOpen = !aboutOpen)}>About {@render kbd("i")}</button>{/if}
+    {#if request.about}<button class="btn" class:on={aboutOpen} title="About the pull request (Space i)" onclick={() => (aboutOpen = !aboutOpen)}>About {@render kbd("Space i")}</button>{/if}
     {#if canComment}
-      <button class="btn" title="Comment on the line, or the selected lines (c)" onclick={startComment}>Comment {@render kbd("c")}</button>
-      <button class="btn changes" title="Finish your review asking for changes (R)" onclick={() => openPost("REQUEST_CHANGES")}>Request changes {@render kbd("R")}</button>
-      <button class="btn approve" title="Finish your review approving it (A)" onclick={() => openPost("APPROVE")}>Approve {@render kbd("A")}</button>
-      <button class="btn post" title="Post your review (P)" onclick={() => openPost(null)}>Post review{#if pending.length}<span class="count">{pending.length}</span>{/if} {@render kbd("P")}</button>
+      <button class="btn" title="Comment on the line (cc), or the selected lines (v, then c)" onclick={startComment}>Comment {@render kbd("cc")}</button>
+      <button class="btn changes" title="Finish your review asking for changes (Space R, :request)" onclick={() => openPost("REQUEST_CHANGES")}>Request changes {@render kbd("Space R")}</button>
+      <button class="btn approve" title="Finish your review approving it (Space A, :approve)" onclick={() => openPost("APPROVE")}>Approve {@render kbd("Space A")}</button>
+      <button class="btn post" title="Post your review (Space P, :w)" onclick={() => openPost(null)}>Post review{#if pending.length}<span class="count">{pending.length}</span>{/if} {@render kbd(":w")}</button>
     {:else}
       <span class="dim">read-only</span>
     {/if}
@@ -668,10 +731,10 @@
           <span class="stat"><span class="plus">+{file.additions}</span> <span class="minus">−{file.deletions}</span></span>
           <span class="spacer"></span>
           <span class="dim">{current + 1} of {files.length}</span>
-          <button title="Previous file ([)" onclick={() => showFile(current - 1)}>{@render kbd("[")}</button>
-          <button title="Next file (])" onclick={() => showFile(current + 1)}>{@render kbd("]")}</button>
-          {#if request.file}<button class="toggle" class:on={whole} title="The whole file ↔ only the changes (f)" onclick={() => keepCursor(() => (whole = !whole))}>{whole ? "Whole file" : "Changes only"} {@render kbd("f")}</button>{/if}
-          <button class="toggle" class:on={split} title="Side by side ↔ one column (s)" onclick={() => keepCursor(() => (split = !split))}>{split ? "Side by side" : "One column"} {@render kbd("s")}</button>
+          <button title="Previous file ([f)" onclick={() => showFile(current - 1)}>{@render kbd("[f")}</button>
+          <button title="Next file (]f)" onclick={() => showFile(current + 1)}>{@render kbd("]f")}</button>
+          {#if request.file}<button class="toggle" class:on={whole} title="The whole file (zR) ↔ only the changes (zM)" onclick={() => keepCursor(() => (whole = !whole))}>{whole ? "Whole file" : "Changes only"} {@render kbd(whole ? "zM" : "zR")}</button>{/if}
+          <button class="toggle" class:on={split} title="Side by side ↔ one column (Ctrl+w v)" onclick={() => keepCursor(() => (split = !split))}>{split ? "Side by side" : "One column"} {@render kbd("Ctrl+w v")}</button>
           <button class="toggle" class:on={isViewed(file)} title="Viewed: on to the next (x)" onclick={() => toggleViewed(current)}>{isViewed(file) ? "✓ Viewed" : "Viewed"} {@render kbd("x")}</button>
         </header>
         <div class="diff-body">
@@ -694,7 +757,7 @@
                     <div class="hunk"><span>{r.header.replace(/ @@.*$/, " @@")}</span>{#if r.fn}<span class="fn">{r.fn}</span>{/if}</div>
                   {:else if r.kind === "gap"}
                     <button id="rv-row-{i}" class="gap" class:cur={isCur} onclick={() => ((cursor = i), openGap(r.key))} disabled={!r.canOpen}>
-                      ⋯ {r.count} unchanged line{r.count === 1 ? "" : "s"}{#if r.canOpen} · {@render kbd("Enter")} show them · {@render kbd("f")} the whole file{/if}
+                      ⋯ {r.count} unchanged line{r.count === 1 ? "" : "s"}{#if r.canOpen} · {@render kbd("zo")} show them · {@render kbd("zR")} the whole file{/if}
                     </button>
                   {:else}
                     {@const same = r.left === r.right}
@@ -713,7 +776,7 @@
                     </div>
                     {#each r.anchor ? (threadsAt.get(anchorKey(r.anchor)) ?? []) : [] as t (t.id)}
                       {#if t.resolved && !showResolved[t.id]}
-                        <button class="resolved" class:cur={isCur} onclick={() => (showResolved[t.id] = true)}>✓ Resolved: {t.comments.length} comment{t.comments.length === 1 ? "" : "s"} by {[...new Set(t.comments.map((c) => c.author))].join(", ")} · {@render kbd("z")} show</button>
+                        <button class="resolved" class:cur={isCur} onclick={() => (showResolved[t.id] = true)}>✓ Resolved: {t.comments.length} comment{t.comments.length === 1 ? "" : "s"} by {[...new Set(t.comments.map((c) => c.author))].join(", ")} · {@render kbd("x")} show</button>
                       {:else}
                         {@render comments(t, isCur)}
                       {/if}
@@ -731,7 +794,7 @@
                           <span class="av" style="background: var(--green)">Y</span>
                           <div class="cm-body"><div class="who">you<span class="badge pend">Pending</span>{#if p.label.startsWith("lines")}<span class="badge range">{p.label}</span>{/if}<span class="when">waits for Post review</span></div>{@html renderBody(p.body, p.original)}</div>
                         </div>
-                        <div class="tfoot"><button onclick={() => ((pending = pending.filter((x) => x.id !== p.id)), savePending())}>Delete</button><span class="spacer"></span><span>sent with your review {@render kbd("P")}</span></div>
+                        <div class="tfoot"><button onclick={() => ((pending = pending.filter((x) => x.id !== p.id)), savePending())}>Delete</button><span class="spacer"></span><span>sent with your review {@render kbd(":w")}</span></div>
                       </div>
                     {/each}
                     {#if box?.kind === "comment" && i === box.rows[box.rows.length - 1]}
@@ -776,11 +839,11 @@
         {#if a.labels?.length}<section><h4>Labels</h4><div class="labels">{#each a.labels as l}<span class="label">{l}</span>{/each}</div></section>{/if}
         {#if canComment}
           <section><h4>Your review</h4>
-            <div class="it">{pending.length} comment{pending.length === 1 ? "" : "s"} waiting<span class="r">{@render kbd("P")}</span></div>
+            <div class="it">{pending.length} comment{pending.length === 1 ? "" : "s"} waiting<span class="r">{@render kbd(":w")}</span></div>
             <div class="it">{viewedCount} of {files.length} files viewed</div>
           </section>
         {/if}
-        {#if a.url}<section><button class="btn" onclick={() => openUrl(a.url!)}>Open on GitHub {@render kbd("o")}</button></section>{/if}
+        {#if a.url}<section><button class="btn" onclick={() => openUrl(a.url!)}>Open on GitHub {@render kbd("gx")}</button></section>{/if}
       </aside>
     {/if}
   </div>

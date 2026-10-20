@@ -2,14 +2,14 @@
   // The Overview, the center's first tab: where the project stands, at a glance. Cards: how
   // each Toolkit action ran last (thumbdeck's own), then the cards of the project's plugins
   // (the Git plugin's changes and commits, …) in the plugins' order. Read-only. Keys come
-  // through handleKey() while the center has the keyboard; the card under the cursor gets
+  // through run() while the center has the keyboard (the page reads keys against keymap()); the card under the cursor gets
   // its own keys too.
   import { tick } from "svelte";
   import type { Details, Run } from "../types.ts";
   import type { CardInfo, Host } from "../plugins/types.ts";
   import type { ReviewRequest } from "../review/types.ts";
   import PluginFrame from "../plugins/PluginFrame.svelte";
-  import { actionFor, type Keymap } from "../keys/keys.ts";
+  import type { Keymap, Press } from "../keys/keys.ts";
   import { OVERVIEW } from "../keys/maps.ts";
   import { ago, duration } from "./time.ts";
 
@@ -56,7 +56,7 @@
   $effect(() => {
     if (cursor >= cards.length) cursor = Math.max(0, cards.length - 1);
   });
-  let frameRefs = $state<Record<string, { keymap(): Keymap; handleKey(e: KeyboardEvent): boolean } | null>>({});
+  let frameRefs = $state<Record<string, { keymap(): Keymap; runPress(p: Press): void } | null>>({});
 
   // The keys of a plugin's card (not thumbdeck's setup / help / leave, which it adds to each frame's)
   function cardKeys(card: Card | undefined): Keymap | null {
@@ -99,13 +99,16 @@
     tick().then(() => document.querySelector(".ocard.cursor")?.scrollIntoView({ block: "nearest" }));
   }
 
-  export function handleKey(e: KeyboardEvent): boolean {
-    const action = actionFor(OVERVIEW, e);
-    if (action && ["down", "up", "left", "right", "first", "last"].includes(action)) return move(action), true;
+  /** A press read against keymap(): moving between cards, or the card's own key */
+  export function run(p: Press): boolean {
     const card = cards[cursor];
-    if (card?.kind === "plugin" && cardKeys(card) && actionFor(cardKeys(card)!, e)) return frameRefs[card.key]!.handleKey(e);
-    if (action === "press") return press(card), true;
-    if (action === "hide" && card) return hideCard(card.id, true), say(`${card.name} hidden in this project: it's listed below the cards`), true;
+    if (card?.kind === "plugin" && cardKeys(card)?.bindings.some((b) => b.action === p.action)) return frameRefs[card.key]!.runPress(p), true;
+    if (["down", "up", "left", "right", "first", "last"].includes(p.action)) {
+      for (let i = 0; i < Math.max(1, p.count ?? 1); i++) move(p.action);
+      return true;
+    }
+    if (p.action === "press") return press(card), true;
+    if (p.action === "delete" && card) return hideCard(card.id, true), say(`${card.name} hidden in this project: it's listed below the cards`), true;
     return false;
   }
 
@@ -123,7 +126,7 @@
 
 <div class="overview" class:hidden={!visible}>
   {#if !cards.length}
-    <p class="empty">{hidden.length ? "Every card is hidden in this project: bring them back below." : "Nothing here yet: add your own action in the Toolkit (a), or plugins with cards (Git) in Settings › Plugins."}</p>
+    <p class="empty">{hidden.length ? "Every card is hidden in this project: bring them back below." : "Nothing here yet: add your own action (Space a), or plugins with cards (Git) in Settings › Plugins."}</p>
   {/if}
   <div class="grid" bind:this={gridEl}>
     {#each cards as card, i (card.kind === "plugin" ? `${card.key}#${reloads[card.info.plugin] ?? 0}` : card.kind)}

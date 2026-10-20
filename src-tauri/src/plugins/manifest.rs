@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The plugin API versions this thumbdeck speaks
-pub const API: std::ops::RangeInclusive<u32> = 1..=1;
+pub const API: std::ops::RangeInclusive<u32> = 1..=2;
 
 /// Project icons thumbdeck has (an `icon` under [detect] is one of these, or an .svg file)
 pub const ICONS: &[&str] = &["django", "python", "android", "node", "tauri", "rust", "go", "nvim", "folder"];
@@ -124,7 +124,9 @@ pub struct CardDef {
 }
 
 /// Keys a card can't bind: they move between the Overview's cards, and x hides one
-pub const CARD_KEYS: &[&str] = &["h", "j", "k", "l", "g", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "x"];
+pub const CARD_KEYS: &[&str] = &["h", "j", "k", "l", "gg", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "dd"];
+/// What the Overview kept from cards of plugins made for plugin API 1
+pub const CARD_KEYS_API1: &[&str] = &["h", "j", "k", "l", "g", "G", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight", "x"];
 
 fn project_scope() -> String {
     "project".into()
@@ -452,7 +454,7 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
         }
     }
     for (name, map) in &keys {
-        out.extend(map.problems(name));
+        out.extend(map.problems(name, raw.api));
         let surface_exists = match map.surface.split_once(':') {
             Some(("tab", id)) => raw.tab.iter().any(|t| t.id == id),
             Some(("panel", id)) => raw.panel.iter().any(|p| p.id == id),
@@ -465,8 +467,9 @@ pub fn parse(text: &str, folder: &Path) -> Result<Manifest, Vec<String>> {
             out.push(format!("keys.{name}: surface \"{}\" isn't one of the plugin's (tab:<id>, panel:<id>, card:<id>, page:<id> or view)", map.surface));
         }
         if map.surface.starts_with("card:") {
-            for k in map.bindings.iter().flat_map(|b| &b.keys).filter(|k| CARD_KEYS.contains(&k.as_str())) {
-                out.push(format!("keys.{name}: on a card, {k} is thumbdeck's (h/j/k/l/g/G move between the Overview's cards, x hides one)"));
+            let (taken, why) = if raw.api >= 2 { (CARD_KEYS, "h/j/k/l/gg/G move between the Overview's cards, dd hides one") } else { (CARD_KEYS_API1, "h/j/k/l/g/G move between the Overview's cards, x hides one") };
+            for k in map.bindings.iter().flat_map(|b| &b.keys).filter(|k| taken.contains(&k.as_str())) {
+                out.push(format!("keys.{name}: on a card, {k} is thumbdeck's ({why})"));
             }
         }
     }
@@ -683,7 +686,7 @@ action = { name = "{item}", command = "npm run {item}" }
     #[test]
     fn who_it_is_is_checked() {
         let d = TempDir::new("manifest-who");
-        let p = problems(&d, "id = \"My Plugin\"\nname = \" \"\nversion = \"1.0\"\napi = 2\n");
+        let p = problems(&d, "id = \"My Plugin\"\nname = \" \"\nversion = \"1.0\"\napi = 3\n");
         assert_eq!(p.len(), 4, "{p:?}");
         assert!(p[0].contains("lowercase"));
         assert!(p[1].contains("name is empty"));
