@@ -19,6 +19,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import type { Segment } from "./diff.ts";
+import { markPieces } from "./review.ts";
 
 for (const [name, lang] of Object.entries({ bash, css, dockerfile, gherkin, go, ini, java, javascript, json, markdown, python, rust, sql, typescript, xml, yaml })) {
   hljs.registerLanguage(name, lang);
@@ -49,8 +50,14 @@ function colour(text: string, lang: string | null): string {
   }
 }
 
-/** A line as HTML: coloured, with the words that changed marked (<mark>) */
-export function lineHtml(text: string, lang: string | null, segments: Segment[] | null): string {
-  if (!segments) return colour(text, lang);
-  return segments.map((s) => (s.changed ? `<mark>${colour(s.text, lang)}</mark>` : colour(s.text, lang))).join("");
+/** A line as HTML: coloured, with the words that changed marked (<mark>) and the search's
+ *  matches (<mark class="hit">) */
+export function lineHtml(text: string, lang: string | null, segments: Segment[] | null, hits: [number, number][] = []): string {
+  if (!segments && !hits.length) return colour(text, lang);
+  return markPieces(text, segments, hits)
+    .map((p) => {
+      const html = p.changed ? `<mark>${colour(p.text, lang)}</mark>` : colour(p.text, lang);
+      return p.hit ? `<mark class="hit">${html}</mark>` : html;
+    })
+    .join("");
 }

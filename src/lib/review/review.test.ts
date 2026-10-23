@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseDiff } from "./diff.ts";
-import { anchorOf, commentRange, fileTree, isChange, rangeLabel, renderBody, rowsFor, suggestionText, textLines, type VRow } from "./review.ts";
+import { anchorOf, commentRange, fileTree, findMatches, markPieces, matchRanges, parseQuery, isChange, rangeLabel, renderBody, rowsFor, suggestionText, textLines, type VRow } from "./review.ts";
 
 const DIFF = `diff --git a/src/cart.ts b/src/cart.ts
 --- a/src/cart.ts
@@ -94,4 +94,36 @@ test("comment text is escaped, with a little Markdown back", () => {
 test("a file's lines", () => {
   assert.deepEqual(textLines("a\nb\n"), ["a", "b"]);
   assert.deepEqual(textLines("a\r\nb"), ["a", "b"]);
+});
+
+test("search: what the query asks", () => {
+  assert.deepEqual(parseQuery("total"), { text: "total", only: null, matchCase: false });
+  assert.deepEqual(parseQuery("+return"), { text: "return", only: "add", matchCase: false });
+  assert.deepEqual(parseQuery("-TAX"), { text: "TAX", only: "del", matchCase: true });
+  assert.deepEqual(parseQuery("\\-1"), { text: "-1", only: null, matchCase: false });
+  assert.equal(parseQuery(""), null);
+  assert.equal(parseQuery("+"), null);
+});
+
+test("search: where it matches", () => {
+  assert.deepEqual(matchRanges("a Total total", parseQuery("total")!), [[2, 7], [8, 13]]);
+  assert.deepEqual(matchRanges("a Total total", parseQuery("Total")!), [[2, 7]]);
+  assert.deepEqual(matchRanges("aaaa", parseQuery("aa")!), [[0, 2], [2, 4]]);
+  const files = parseDiff(DIFF);
+  const all = findMatches(files, parseQuery("return")!);
+  assert.deepEqual(all.map((m) => [m.file, m.line.kind, m.line.text]), [[0, "del", "  return 1;"], [0, "add", "  return 2;"]]);
+  assert.deepEqual(findMatches(files, parseQuery("+return")!).map((m) => m.line.text), ["  return 2;"]);
+  assert.deepEqual(findMatches(files, parseQuery("nothing like it")!), []);
+});
+
+test("search: a line's pieces, the changed words and the matches marked", () => {
+  const words = [{ text: "export const a = ", changed: false }, { text: "2", changed: true }, { text: ";", changed: false }];
+  assert.deepEqual(markPieces("export const a = 2;", words, [[7, 12]]), [
+    { text: "export ", changed: false, hit: false },
+    { text: "const", changed: false, hit: true },
+    { text: " a = ", changed: false, hit: false },
+    { text: "2", changed: true, hit: false },
+    { text: ";", changed: false, hit: false },
+  ]);
+  assert.deepEqual(markPieces("ab", null, []), [{ text: "ab", changed: false, hit: false }]);
 });

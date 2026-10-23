@@ -125,16 +125,22 @@ Enter, shows one in the center. **Panels** from plugins sit under the Toolkit. T
 
 ## The review page
 
-Enter (or `gd`) on a pull request, or on the Git tab's changes, a commit or a stash, opens its changes
-over the whole window: the files on the left (a tree, with a viewed bar and a filter, `/`), the
+Enter (or `gd`) on a pull request, or on the Git tab's changes, a commit, picked commits (`v`) or a stash, opens its changes
+over the whole window: the files on the left (a tree, with a viewed bar and a filter, `-` then `/`), the
 diff in the middle with a line cursor, and for a PR its description, checks, reviewers and labels
 on the right (`Space i`). Every button shows its key. Nothing is checked out.
 
 - **Reading**: `j` / `k` move, `]c` / `[c` jump between changes, `]f` / `[f` between files, `Ctrl+w v` side
   by side or one column, with syntax colours and the words that changed marked. Enter on
   `⋯ 12 unchanged lines` shows them (or `zo`), `zR` the whole file (`zM` back). `x` ticks a file viewed and moves on to
-  the next (remembered until that file changes again). In the file list (`-`), each file shows as
-  you move to it. The thin bar on the right shows where the changes and comments are.
+  the next. A file you viewed whose changes are different now (new commits, more edits) shows ●
+  "changed since viewed", and the page opens on the first of them. In the file list (`-`), each
+  file shows as you move to it. The thin bar on the right shows where the changes, comments and
+  search matches are.
+- **Searching**: `/` searches the changes in every file as you type (`+word` only added lines,
+  `-word` only removed ones; a capital letter makes it match case). Enter goes to the first
+  match, `n` / `N` to the next / previous one, on through the files; the file list shows how many
+  each file has. Esc clears the search, then leaves.
 - **Commenting** (a PR): `cc` comments on the line, `v` selects lines (`j` / `k` or Shift+click
   extend) to comment on together (`c`) or copy (`y`, in any review), `Ctrl+g` writes a suggested change, `Ctrl+Enter` adds it to your
   review. The threads show under their lines: `]t` / `[t` jump between them, Enter replies, `x`

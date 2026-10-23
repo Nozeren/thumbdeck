@@ -11,7 +11,7 @@
   import type { ReviewComment, ReviewEvent, ReviewRequest, ReviewThread } from "./types.ts";
   import { parseDiff, splitRows, wordDiff, type DiffFile, type Line, type Segment } from "./diff.ts";
   import { languageFor, lineHtml } from "./highlight.ts";
-  import { anchorKey, commentable, commentRange, fileTree, isChange, keptText, rangeLabel, renderBody, rowsFor, suggestionText, textLines, type Anchor, type VRow } from "./review.ts";
+  import { anchorKey, commentable, commentRange, fileTree, findMatches, isChange, keptText, matchRanges, parseQuery, rangeLabel, renderBody, rowsFor, suggestionText, textLines, type Anchor, type VRow } from "./review.ts";
   import { keyName, KeyReader, times, type Fed, type Keymap, type Press } from "../keys/keys.ts";
   import { MOVED, REVIEW, REVIEW_COMMENT, REVIEW_FILES, REVIEW_POST, REVIEW_VISUAL } from "../keys/maps.ts";
   import KeyHelp from "../keys/KeyHelp.svelte";
@@ -37,9 +37,13 @@
       files = parseDiff(await request.load());
       error = "";
       const start = files.findIndex((f) => f.path === request.startFile);
+      // Files that changed since you viewed them come first
+      const again = files.filter(changedSince).length;
       if (start >= 0) current = start;
+      else if (again) current = files.findIndex(changedSince);
       current = Math.min(current, Math.max(0, files.length - 1));
       texts = {};
+      if (again) say(`${again} file${again === 1 ? "" : "s"} changed since you viewed ${again === 1 ? "it" : "them"} (marked ●)`);
     } catch (err) {
       error = String(err);
     } finally {
@@ -94,6 +98,9 @@
   });
   const isViewed = (f: DiffFile) => viewed[f.path] === f.hash;
   const viewedCount = $derived(files.filter(isViewed).length);
+  /** Marked viewed, but its changes are different now (new commits, more edits) */
+  const changedSince = (f: DiffFile) => !!viewed[f.path] && viewed[f.path] !== f.hash;
+  const changedCount = $derived(files.filter(changedSince).length);
 
   function toggleViewed(i: number, next = true) {
     const f = files[i];
@@ -150,7 +157,7 @@
     }
     return map;
   });
-  const html = (l: Line | null) => (l ? lineHtml(l.text, lang, words.get(l) ?? null) : "");
+  const html = (l: Line | null) => (l ? lineHtml(l.text, lang, words.get(l) ?? null, query && hitLines.has(l) ? matchRanges(l.text, query) : []) : "");
 
   // ------------------------------------------------------------ the cursor and the selection
   let cursor = $state(0);
@@ -392,6 +399,60 @@
     }
   }
 
+  // ------------------------------------------------------------ searching the changes (/, n, N)
+  let searchText = $state("");
+  let searching = $state(false);
+  let searchEl = $state<HTMLInputElement | null>(null);
+  const query = $derived(parseQuery(searchText));
+  const matches = $derived(query ? findMatches(files, query) : []);
+  const hitLines = $derived(new Set(matches.map((m) => m.line)));
+  const hitsIn = $derived(matches.reduce((n, m) => n.set(m.file, (n.get(m.file) ?? 0) + 1), new Map<number, number>()));
+  const isHit = (r: VRow | undefined) => !!r && r.kind === "line" && !r.extra && ((!!r.left && hitLines.has(r.left)) || (!!r.right && hitLines.has(r.right)));
+  /** Which match the cursor is on ("3 of 17"), 0 when it's on none */
+  const matchHere = $derived.by(() => {
+    const r = rows[cursor];
+    if (r?.kind !== "line") return 0;
+    return matches.findIndex((m) => m.file === current && (m.line === r.left || m.line === r.right)) + 1;
+  });
+
+  async function openSearch() {
+    searching = true;
+    focus = "diff";
+    await tick();
+    searchEl?.select();
+  }
+  /** Enter in the box: on to the first match from here */
+  function endSearch() {
+    searching = false;
+    searchEl?.blur();
+    if (!query) return;
+    if (!matches.length) return say(`Not found: ${searchText}`);
+    if (!isHit(rows[cursor])) jumpMatch(1);
+  }
+  function clearSearch() {
+    searching = false;
+    searchText = "";
+    searchEl?.blur();
+  }
+  /** The next (or previous) match: in this file past the cursor, then in the next files, round again at the end */
+  function jumpMatch(dir: 1 | -1) {
+    if (!query) return say("No search yet: / searches the changes");
+    if (!matches.length) return say(`Not found: ${searchText}`);
+    const here = rows.flatMap((r, i) => (isHit(r) ? [i] : []));
+    const next = dir > 0 ? here.find((i) => i > cursor) : here.findLast((i) => i < cursor);
+    if (next !== undefined) return cursorTo(next);
+    for (let k = 1; k <= files.length; k++) {
+      const fi = (current + dir * k + files.length * 2) % files.length;
+      if (!hitsIn.get(fi)) continue;
+      if (dir > 0 ? fi <= current : fi >= current) say(dir > 0 ? "Past the last match: back to the first" : "Past the first match: on to the last");
+      showFile(fi).then(() => {
+        const list = rows.flatMap((r, i) => (isHit(r) ? [i] : []));
+        if (list.length) cursorTo(dir > 0 ? list[0] : list[list.length - 1]);
+      });
+      return;
+    }
+  }
+
   // ------------------------------------------------------------ the file list (after -)
   let focus = $state<"diff" | "files">("diff");
   let fileCursor = $state(0);
@@ -465,6 +526,12 @@
       if (name === "Escape") (box = null), (draft = "");
       else if (name === "Ctrl+Enter" || name === "Ctrl+s") send();
       else if (name === "Ctrl+g") suggest();
+      else return false;
+      return true;
+    }
+    if (searching && inText) {
+      if (name === "Enter") endSearch();
+      else if (name === "Escape") clearSearch();
       else return false;
       return true;
     }
@@ -542,11 +609,17 @@
       case "request-changes": openPost("REQUEST_CHANGES"); break;
       case "post": openPost(null); break;
       case "files": toFiles(); break;
-      case "search": openFilter(); break;
+      case "search": openSearch(); break;
+      case "next-match": for (let i = 0; i < n; i++) jumpMatch(1); break;
+      case "previous-match": for (let i = 0; i < n; i++) jumpMatch(-1); break;
       case "outside": if (request.about?.url) openUrl(request.about.url); else say("No page to open"); break;
       case "refresh": load(); break;
       case "help": help = true; break;
-      case "leave": if (anchorRow !== null) anchorRow = null; else onClose(); break;
+      case "leave":
+        if (anchorRow !== null) anchorRow = null;
+        else if (searchText) clearSearch();
+        else onClose();
+        break;
     }
   }
 
@@ -625,6 +698,7 @@
       else if (r.left?.kind === "del") out.push({ top: (i / n) * 100, cls: "del" });
       if (r.anchor && threadsAt.has(anchorKey(r.anchor))) out.push({ top: (i / n) * 100, cls: "thread" });
       if (pendingAt(r).length) out.push({ top: (i / n) * 100, cls: "pending" });
+      if (isHit(r)) out.push({ top: (i / n) * 100, cls: "hit" });
       return out;
     });
   });
@@ -690,9 +764,10 @@
       <div class="files-head">
         <div class="row"><strong>Files</strong><span class="dim">{viewedCount} / {files.length} viewed</span><span class="spacer"></span><button title="Move in the files (-)" onclick={toFiles}>{@render kbd("-")}</button></div>
         <div class="progress"><span style="width: {files.length ? (viewedCount / files.length) * 100 : 0}%"></span></div>
+        {#if changedCount}<div class="changed-note" title="You marked them viewed, and their changes are different now">● {changedCount} changed since you viewed {changedCount === 1 ? "it" : "them"}</div>{/if}
         <label class="filter">⌕
           <input bind:this={filterEl} bind:value={filter} placeholder="Filter files" onfocus={() => (filtering = true)} onblur={() => (filtering = false)} />
-          {@render kbd("/")}
+          {@render kbd("- /")}
         </label>
       </div>
       <div class="list">
@@ -706,9 +781,11 @@
               <span class="name">{nameOf(f.path)}</span>
               {#if pendingIn(f.path)}<span class="bubble pending" title="your comments waiting">{pendingIn(f.path)}</span>
               {:else if openThreads(f.path)}<span class="bubble" title="open threads">{openThreads(f.path)}</span>{/if}
+              {#if hitsIn.get(i)}<span class="bubble hits" title="matches of the search">{hitsIn.get(i)}</span>{/if}
               <span class="counts"><span class="plus">{f.additions ? `+${f.additions}` : ""}</span> <span class="minus">{f.deletions ? `−${f.deletions}` : ""}</span></span>
-              <span class="tick" role="checkbox" aria-checked={isViewed(f)} tabindex="-1" title="Viewed (x)"
-                    onclick={(e) => (e.stopPropagation(), toggleViewed(i, i === current))} onkeydown={() => {}}>{isViewed(f) ? "✓" : ""}</span>
+              <span class="tick" class:changed={changedSince(f)} role="checkbox" aria-checked={isViewed(f)} tabindex="-1"
+                    title={changedSince(f) ? "Changed since you viewed it: x marks it viewed again" : "Viewed (x)"}
+                    onclick={(e) => (e.stopPropagation(), toggleViewed(i, i === current))} onkeydown={() => {}}>{isViewed(f) ? "✓" : changedSince(f) ? "●" : ""}</span>
             </button>
           {/each}
         {/each}
@@ -735,8 +812,21 @@
           <button title="Next file (]f)" onclick={() => showFile(current + 1)}>{@render kbd("]f")}</button>
           {#if request.file}<button class="toggle" class:on={whole} title="The whole file (zR) ↔ only the changes (zM)" onclick={() => keepCursor(() => (whole = !whole))}>{whole ? "Whole file" : "Changes only"} {@render kbd(whole ? "zM" : "zR")}</button>{/if}
           <button class="toggle" class:on={split} title="Side by side ↔ one column (Ctrl+w v)" onclick={() => keepCursor(() => (split = !split))}>{split ? "Side by side" : "One column"} {@render kbd("Ctrl+w v")}</button>
-          <button class="toggle" class:on={isViewed(file)} title="Viewed: on to the next (x)" onclick={() => toggleViewed(current)}>{isViewed(file) ? "✓ Viewed" : "Viewed"} {@render kbd("x")}</button>
+          <button class="toggle" class:on={isViewed(file)} class:changed={changedSince(file)} title={changedSince(file) ? "Changed since you viewed it: x marks it viewed again" : "Viewed: on to the next (x)"}
+                  onclick={() => toggleViewed(current)}>{isViewed(file) ? "✓ Viewed" : changedSince(file) ? "● Changed since viewed" : "Viewed"} {@render kbd("x")}</button>
         </header>
+        <label class="search" class:active={!!query}>⌕
+          <input bind:this={searchEl} bind:value={searchText} placeholder="Search the changes (+word: added lines, -word: removed)"
+                 onfocus={() => (searching = true)} onblur={() => (searching = false)} />
+          {#if query}
+            <span class="dim">{matches.length ? `${matchHere ? `${matchHere} of ` : ""}${matches.length} match${matches.length === 1 ? "" : "es"}` : "not found"}</span>
+            <button title="The previous match (N)" onclick={() => jumpMatch(-1)}>{@render kbd("N")}</button>
+            <button title="The next match (n)" onclick={() => jumpMatch(1)}>{@render kbd("n")}</button>
+            <button title="Clear the search (Esc)" onclick={clearSearch}>{@render kbd("Esc")}</button>
+          {:else}
+            {@render kbd("/")}
+          {/if}
+        </label>
         <div class="diff-body">
           <div class="scroll" bind:this={diffEl}>
             {#if outdated.length}
@@ -928,8 +1018,11 @@
   .counts { flex: none; font-size: 10.5px; }
   .bubble { flex: none; font-size: 10px; color: var(--bg-dim); background: var(--yellow); border-radius: 7px; padding: 0 5px; }
   .bubble.pending { background: var(--orange); }
+  .bubble.hits { background: var(--purple); }
   .tick { flex: none; width: 13px; height: 13px; border: 1px solid var(--bg3); border-radius: 3px; display: grid; place-items: center; font-size: 9px; color: var(--bg-dim); }
   .file.seen .tick { background: var(--green); border-color: var(--green); }
+  .tick.changed { border-color: var(--orange); color: var(--orange); }
+  .changed-note { color: var(--orange); font-size: 11.5px; }
   .st { flex: none; width: 12px; text-align: center; font-weight: 700; }
   .st.modified { color: var(--yellow); } .st.added { color: var(--green); } .st.deleted { color: var(--red); } .st.renamed { color: var(--purple); }
 
@@ -942,6 +1035,12 @@
   .file-head .stat { font-size: 11px; }
   .toggle { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--bg3); font: 12px var(--mono); }
   .toggle.on { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, var(--bg3)); }
+  .toggle.changed { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, var(--bg3)); }
+  /* The search: a line under the file's header */
+  .search { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--bg2); color: var(--grey); white-space: nowrap; }
+  .search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--fg); font: inherit; }
+  .search:focus-within, .search.active { background: var(--bg0); }
+  .search:focus-within { box-shadow: inset 2px 0 var(--blue); }
   .diff-body { flex: 1; min-height: 0; display: flex; }
   .scroll { position: relative; flex: 1; min-height: 0; overflow: auto; }
   .msg { padding: 16px; }
@@ -962,6 +1061,7 @@
   .sign { display: inline-block; width: 14px; color: var(--grey); user-select: none; }
   code.add .sign { color: var(--green); } code.del .sign { color: var(--red); }
   code.add :global(mark) { background: var(--add-mark); color: inherit; border-radius: 2px; }
+  .rows code :global(mark.hit) { background: color-mix(in srgb, var(--purple) 45%, transparent); color: var(--fg); border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 70%, transparent); }
   code.del :global(mark) { background: var(--del-mark); color: inherit; border-radius: 2px; }
   .plus-btn { position: absolute; left: 70px; top: 1px; width: 17px; height: 17px; border-radius: 4px; background: var(--blue); color: var(--bg-dim); font-weight: 700; display: none; place-items: center; z-index: 2; }
   .rows.split .plus-btn { left: calc(50% + 24px); }
@@ -1012,6 +1112,7 @@
   .map i.add { background: var(--green); } .map i.del { background: var(--red); }
   .map i.thread { background: var(--yellow); left: 0; right: 0; }
   .map i.pending { background: var(--orange); left: 0; right: 0; }
+  .map i.hit { background: var(--purple); left: 0; right: 0; }
   .map i.here { left: 0; right: 0; height: 2px; background: var(--fg); opacity: 0.7; }
 
   /* about the pull request */

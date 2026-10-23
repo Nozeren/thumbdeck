@@ -1,7 +1,7 @@
 // The review page's logic, kept out of the page so it can be tested (review.test.ts): the rows
 // of a file (its changes, the unchanged parts between them collapsed or opened), where a
 // comment goes on GitHub, the file tree, and comment text made safe to show.
-import { splitRows, unifiedRows, type DiffFile, type Line } from "./diff.ts";
+import { splitRows, unifiedRows, type DiffFile, type Line, type Segment } from "./diff.ts";
 
 /** Where a comment sits: GitHub's side and line (LEFT: the old file, RIGHT: the new one) */
 export interface Anchor {
@@ -154,4 +154,56 @@ export function renderBody(text: string, original: string[] = []): string {
     if (inline) html += inline.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
   });
   return html;
+}
+
+/** What a search looks for: "+word" only in added lines, "-word" only in removed ones ("\-word"
+ *  for a leading - or +); a capital letter makes it match case, as vim's smartcase does */
+export interface Query {
+  text: string;
+  only: "add" | "del" | null;
+  matchCase: boolean;
+}
+
+export function parseQuery(input: string): Query | null {
+  let text = input;
+  let only: Query["only"] = null;
+  if (text.startsWith("+")) (only = "add"), (text = text.slice(1));
+  else if (text.startsWith("-")) (only = "del"), (text = text.slice(1));
+  else if (text.startsWith("\\")) text = text.slice(1);
+  if (!text) return null;
+  return { text, only, matchCase: text !== text.toLowerCase() };
+}
+
+/** Where a query is in a line's text: [start, end) ranges */
+export function matchRanges(text: string, q: Query): [number, number][] {
+  const hay = q.matchCase ? text : text.toLowerCase();
+  const needle = q.matchCase ? q.text : q.text.toLowerCase();
+  const out: [number, number][] = [];
+  for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) out.push([i, i + needle.length]);
+  return out;
+}
+
+/** Every line of the changes that matches, file by file, in order */
+export function findMatches(files: DiffFile[], q: Query): { file: number; line: Line }[] {
+  const out: { file: number; line: Line }[] = [];
+  files.forEach((f, file) => {
+    for (const h of f.hunks) for (const line of h.lines) if ((!q.only || line.kind === q.only) && matchRanges(line.text, q).length) out.push({ file, line });
+  });
+  return out;
+}
+
+/** A line cut where the changed words and the search matches start and end, to mark each piece */
+export function markPieces(text: string, words: Segment[] | null, hits: [number, number][]): { text: string; changed: boolean; hit: boolean }[] {
+  const changedAt: boolean[] = [];
+  if (words) for (const s of words) for (let k = 0; k < s.text.length; k++) changedAt.push(s.changed);
+  const hitAt = new Array<boolean>(text.length).fill(false);
+  for (const [a, b] of hits) for (let k = a; k < b; k++) hitAt[k] = true;
+  const out: { text: string; changed: boolean; hit: boolean }[] = [];
+  for (let k = 0; k < text.length; k++) {
+    const changed = !!changedAt[k];
+    const last = out.at(-1);
+    if (last && last.changed === changed && last.hit === hitAt[k]) last.text += text[k];
+    else out.push({ text: text[k], changed, hit: hitAt[k] });
+  }
+  return out;
 }
